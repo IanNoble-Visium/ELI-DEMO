@@ -9,7 +9,16 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Routes will be added in later phases
+// Basic favicon to avoid 404 noise
+app.get('/favicon.ico', (req, res) => {
+  res.setHeader('Content-Type', 'image/x-icon');
+  // 1x1 transparent GIF as favicon (valid ico content is not required by all browsers)
+  const buf = Buffer.from('R0lGODlhAQABAAAAACwAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==','base64');
+  res.status(200).end(buf);
+});
+
+// Routes
+app.use(require('./routes/debug')); // mounts /debug and /api/debug/*
 app.use('/ingest', require('./routes/ingest'));
 app.use('/webhook', require('./routes/webhook'));
 

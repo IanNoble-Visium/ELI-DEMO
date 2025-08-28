@@ -51,8 +51,10 @@ router.get('/debug', requireDebugAccess, async (req, res) => {
       .controls{display:flex;gap:8px;align-items:center;padding:12px}
       input,select,button{background:#0e152b;color:var(--text);border:1px solid #1d2744;border-radius:6px;padding:6px 8px}
       button.primary{background:var(--accent);color:#041220;border-color:var(--accent)}
+      #neo4j-graph{height:420px;border-top:1px solid #1d2744}
       @media (max-width:600px){ th,td{font-size:12px} }
     </style>
+    <script src="https://unpkg.com/cytoscape@3.26.0/dist/cytoscape.min.js"></script>
   </head>
   <body>
     <header>
@@ -68,7 +70,10 @@ router.get('/debug', requireDebugAccess, async (req, res) => {
     <section id="panel-pg" class="panel active">
       <div class="controls">
         <label>Limit <input id="pg-limit" type="number" value="50" min="1" max="200" /></label>
-        <button class="primary" onclick="loadPg()">Refresh</button>
+        <button onclick="pgPrev()">Prev</button>
+        <button onclick="pgNext()">Next</button>
+        <span id="pg-page" style="color:#a8b3cf">Page: 1</span>
+        <button class="primary" onclick="loadPg(true)">Refresh</button>
       </div>
       <div id="pg-content"></div>
     </section>
@@ -78,6 +83,7 @@ router.get('/debug', requireDebugAccess, async (req, res) => {
         <button class="primary" onclick="loadNeo4j()">Refresh</button>
       </div>
       <div id="neo4j-content"></div>
+      <div id="neo4j-graph"></div>
     </section>
 
     <section id="panel-cloudinary" class="panel">
@@ -101,23 +107,27 @@ router.get('/debug', requireDebugAccess, async (req, res) => {
       const token = '${process.env.DEBUG_DASHBOARD_TOKEN || ''}';
       const headers = token ? { 'X-Debug-Token': token } : {};
 
-      async function loadPg(){
-        const limit = document.getElementById('pg-limit').value || 50;
+      let pgOffset = 0;
+      window.loadPg = async function(reset){
+        const limit = parseInt(document.getElementById('pg-limit').value || 50, 10);
+        if(reset) pgOffset = 0;
         const el = document.getElementById('pg-content');
         el.innerHTML = 'Loading...';
         try{
-          const r = await fetch('/api/debug/pg?limit='+encodeURIComponent(limit), { headers });
+          const r = await fetch('/api/debug/pg?limit='+encodeURIComponent(limit)+'&offset='+encodeURIComponent(pgOffset), { headers });
           const j = await r.json();
           if(j.mock) { el.innerHTML = '<div class="error">Mock mode enabled — showing no live data.</div>'; return; }
-          el.innerHTML = `
-            <div style="padding:12px">
-              <h3 style="margin:0 0 8px 0">Recent Events</h3>
-              ${renderTable(j.events, ['id','start_time','topic','channel_id'])}
-              <h3 style="margin:16px 0 8px 0">Recent Snapshots</h3>
-              ${renderTable(j.snapshots, ['id','event_id','type','path','image_url','created_at'])}
-            </div>`;
+          el.innerHTML = '<div style="padding:12px">' +
+            '<h3 style="margin:0 0 8px 0">Recent Events</h3>' +
+            renderTable(j.events, ['id','start_time','topic','channel_id']) +
+            '<h3 style="margin:16px 0 8px 0">Recent Snapshots</h3>' +
+            renderTable(j.snapshots, ['id','event_id','type','path','image_url','created_at']) +
+          '</div>';
+          const page = Math.floor(pgOffset/limit)+1; document.getElementById('pg-page').textContent = 'Page: '+page;
         }catch(e){ el.innerHTML = '<div class="error">'+(e && e.message || 'Failed to load')+'</div>'; }
       }
+      window.pgNext = function(){ const limit = parseInt(document.getElementById('pg-limit').value||50,10); pgOffset += limit; window.loadPg(); }
+      window.pgPrev = function(){ const limit = parseInt(document.getElementById('pg-limit').value||50,10); pgOffset = Math.max(0, pgOffset - limit); window.loadPg(); }
 
       function renderTable(rows, cols){
         if(!rows || rows.length===0) return '<div class="error">No rows</div>';
@@ -126,7 +136,7 @@ router.get('/debug', requireDebugAccess, async (req, res) => {
         return '<div style="overflow:auto"><table>'+head+body+'</table></div>';
       }
 
-      async function loadNeo4j(){
+      window.loadNeo4j = async function(){
         const el = document.getElementById('neo4j-content');
         el.innerHTML = 'Loading...';
         try{
@@ -135,19 +145,32 @@ router.get('/debug', requireDebugAccess, async (req, res) => {
           if(j.mock) { el.innerHTML = '<div class="error">Mock mode enabled — showing no live data.</div>'; return; }
           const nodeCols = ['id','labels'];
           const relCols = ['type','start','end'];
-          const nodes = j.nodes.map(n=>({ id:n.id, labels:n.labels && n.labels.join(',') }));
-          const rels = j.relationships.map(r=>({ type:r.type, start:r.start, end:r.end }));
-          el.innerHTML = `
-            <div style="padding:12px">
-              <h3 style="margin:0 0 8px 0">Nodes</h3>
-              ${renderTable(nodes, nodeCols)}
-              <h3 style="margin:16px 0 8px 0">Relationships</h3>
-              ${renderTable(rels, relCols)}
-            </div>`;
+          const nodes = j.nodes.map(function(n){ return { id:n.id, labels:(n.labels||[]).join(',') }; });
+          const rels = j.relationships.map(function(r){ return { type:r.type, start:r.start, end:r.end }; });
+          el.innerHTML = '<div style="padding:12px">' +
+            '<h3 style="margin:0 0 8px 0">Nodes</h3>' +
+            renderTable(nodes, nodeCols) +
+            '<h3 style="margin:16px 0 8px 0">Relationships</h3>' +
+            renderTable(rels, relCols) +
+          '</div>';
+
+          // Cytoscape mini-viz
+          const cy = cytoscape({
+            container: document.getElementById('neo4j-graph'),
+            style: [
+              { selector: 'node', style: { 'background-color': '#3aa0ff', 'label': 'data(id)', 'font-size': 8, 'color': '#111' } },
+              { selector: 'edge', style: { 'line-color': '#8aa4c8', 'target-arrow-color': '#8aa4c8', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'width': 1, 'label': 'data(label)', 'font-size': 7, 'color': '#a8b3cf' } }
+            ],
+            layout: { name: 'cose', animate: false }
+          });
+          const elNodes = j.nodes.map(function(n){ return { data: { id: String(n.id) } }; });
+          const elEdges = j.relationships.map(function(rel){ return { data: { id: rel.start+'_'+rel.type+'_'+rel.end, source: String(rel.start), target: String(rel.end), label: rel.type } }; });
+          cy.add(elNodes.concat(elEdges));
+          cy.layout({ name: 'cose', animate: false }).run();
         }catch(e){ el.innerHTML = '<div class="error">'+(e && e.message || 'Failed to load')+'</div>'; }
       }
 
-      async function loadCloudinary(){
+      window.loadCloudinary = async function(){
         const folder = document.getElementById('cld-folder').value || '';
         const limit = document.getElementById('cld-limit').value || 50;
         const el = document.getElementById('cloudinary-content');
@@ -156,21 +179,41 @@ router.get('/debug', requireDebugAccess, async (req, res) => {
           const r = await fetch('/api/debug/cloudinary?folder='+encodeURIComponent(folder)+'&limit='+encodeURIComponent(limit), { headers });
           const j = await r.json();
           if(j.mock) { el.innerHTML = '<div class="error">Mock mode enabled — showing no live data.</div>'; return; }
-          const items = (j.resources||[]).map(x=>
-            `<div class="thumb">
-              <img src="${x.secure_url}" alt="thumb" />
-              <div class="meta">${escapeHtml(x.public_id)}<br/>${new Date(x.created_at).toLocaleString()}</div>
-            </div>`).join('');
+          const items = (j.resources||[]).map(function(x){
+            return '<div class="thumb">'+
+              '<img src="'+x.secure_url+'" alt="thumb" />'+
+              '<div class="meta">'+escapeHtml(x.public_id)+'<br/>'+new Date(x.created_at).toLocaleString()+'</div>'+
+            '</div>';
+          }).join('');
           el.innerHTML = '<div class="grid">'+(items||'<div class="error">No images</div>')+'</div>';
         }catch(e){ el.innerHTML = '<div class="error">'+(e && e.message || 'Failed to load')+'</div>'; }
       }
 
-      function escapeHtml(v){ if(v==null) return ''; return String(v).replace(/[&<>"']/g, s=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[s])); }
+      function renderTable(rows, cols){
+        if(!rows || rows.length===0) return '<div class="error">No rows</div>';
+        const head = '<tr>'+cols.map(function(c){return '<th>'+c+'</th>';}).join('')+'</tr>';
+        const body = rows.map(function(r){return '<tr>'+cols.map(function(c){return '<td>'+escapeHtml(r[c])+'</td>';}).join('')+'</tr>';}).join('');
+        return '<div style="overflow:auto"><table>'+head+body+'</table></div>';
+      }
+
+      function escapeHtml(v){
+        if(v==null) return '';
+        return String(v).replace(/[&<>"']/g, function(s){
+          switch (s) {
+            case '&': return '&amp;';
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '"': return '&quot;';
+            case "'": return '&#39;';
+            default: return s;
+          }
+        });
+      }
 
       // Initial loads
-      loadPg();
-      loadNeo4j();
-      loadCloudinary();
+      window.loadPg();
+      window.loadNeo4j();
+      window.loadCloudinary();
     </script>
   </body>
   </html>`);
@@ -178,15 +221,16 @@ router.get('/debug', requireDebugAccess, async (req, res) => {
 
 router.get('/api/debug/pg', requireDebugAccess, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || '50', 10), 200);
+  const offset = Math.max(parseInt(req.query.offset || '0', 10), 0);
   if (config.mockMode) return res.json({ mock: true, events: [], snapshots: [] });
   try {
     const ev = await query(
-      `SELECT id, topic, start_time, channel_id FROM events ORDER BY start_time DESC NULLS LAST LIMIT $1`,
-      [limit]
+      `SELECT id, topic, start_time, channel_id FROM events ORDER BY start_time DESC NULLS LAST LIMIT $1 OFFSET $2`,
+      [limit, offset]
     );
     const sn = await query(
-      `SELECT id, event_id, type, path, image_url, created_at FROM snapshots ORDER BY created_at DESC NULLS LAST LIMIT $1`,
-      [limit]
+      `SELECT id, event_id, type, path, image_url, created_at FROM snapshots ORDER BY created_at DESC NULLS LAST LIMIT $1 OFFSET $2`,
+      [limit, offset]
     );
     res.json({ events: ev.rows, snapshots: sn.rows });
   } catch (err) {
