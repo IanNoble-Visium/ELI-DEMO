@@ -1,0 +1,236 @@
+﻿
+Â 
+TRUCONTEXT GITHUB - https://github.com/IanNoble-Visium/-TRUCONTEXT-DEMO
+TRUCONTEXT WEB - https://trucontext.visiumtechnologies.com/
+VISIUMTECHNOLOGIES WEB - https://www.visiumtechnologies.com/
+Â 
+##
+## NEO4J CLOUD
+##
+#
+# Neo4j Aura - https://console-preview.neo4j.io/tools/explore
+# GMAIL: inoble.ctr@visiumtechnologies.com
+#
+NEO4J_URI=neo4j+s://fb72cf6b.databases.neo4j.io
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=arYRbX-RvNj5FQZPKElg5zA0NjFjD8a4kLW_mFlocIU
+NEO4J_DATABASE=neo4j
+AURA_INSTANCEID=fb72cf6b
+AURA_INSTANCENAME=Instance01
+Â 
+##
+## CLOUDINARY
+##
+# # https://console.cloudinary.com/ - Advanced Search | Assets | Assets (DAM) | Cloudinary
+# GMAIL: inoble.ctr@visiumtechnologies.com
+# 
+CLOUDINARY_URL=cloudinary://426916362366118:u6Hyewut_KWe4nCfeWwIjUP3kdw@dlogj3gc8CLOUDINARY_CLOUD_NAME=dlogj3gc8CLOUDINARY_API_KEY=426916362366118CLOUDINARY_API_SECRET=u6Hyewut_KWe4nCfeWwIjUP3kdw
+Â 
+##
+## POSTGRES CLOUD
+##
+#
+# Neon Console - https://console.neon.tech/app/projects/hidden-dust-70146251
+# GMAIL: inoble.ctr@visiumtechnologies.com 
+# PROJECT: ELI
+# DATABASE: neondb
+# ROLE: neondb_owner
+#
+POSTGRES_URL=postgresql://neondb_owner:npg_JpkW8QXvC9PG@ep-super-waterfall-adeqzhke-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+Â 
+20250825 - Luis (CEO of IREX) requirements:
+**Phase 1: Demo Integration**
+For the demo, we can establish a connection using our cluster in Texas. There are two potential connection methods: direct connection if the Visium platform uses a public IP, or an IPSec VPN for full connectivity. From our end, we will push the necessary information to Visium. Please let me know which scenario you prefer. If a VPN is needed, I will provide the common parameters for setup.
+Â 
+**Phase 2: JSON Template for Data Push**
+We use the attached JSON template to push information to external systems. Please refer to the " Exteral system push - Google Docs"Â for details.
+Â 
+Perplexity AI suggestions:
+Â 
+Got it âœ… â€” Youâ€™ve provided IREXâ€™s external system push specification and want to know how this can be integrated into the existing TruContext Demo platform (Next.js + Neo4j + PostgreSQL + Cloudinary). Letâ€™s break this down clearly:
+Â 
+ðŸ”Ž 1. Summary of IREX Push Spec
+The IREX system automatically exports detection events (people, faces, vehicles, license plates) in real-time to an external system (like TruContext). The interaction occurs in 3 separate POST messages per event over a trusted HTTP/HTTPS channel:
+Event Metadata Message (application/json)
+Contains event ID, timestamp, location (lat/lon), camera ID, address, and snapshot references.
+For vehicles, may include plate number and region/state.
+Full-Frame Snapshot Message
+Separate POST.
+Contains the full image frame in Base64 PNG (same resolution as captured).
+Face / License Plate Snapshot Message
+Separate POST.
+Contains cropped image (face or license plate) in Base64 PNG.
+âš¡ Key Notes:
+Matching between metadata/snapshots is handled on TruContextâ€™s receiving side (via common event IDs).
+If TruContext is unavailable â†’ IREX stores data max 30 minutes and retries automatically.
+Responses must follow HTTP/1.1 standards (200 OK on success, empty body).
+Â 
+ðŸ”Ž 2. Data Payload Examples
+Face Event Metadata:
+Â 
+json
+{  "id": "4319:1687267038192:75990379422576867",  "start_time": 1687267038192,  "latitude": 13.9219,  "longitude": 17.6168,  "channel_id": 1001,  "address": {    "country": "USA",    "region": "123 region",    "city": "asd",    "district": "Beavers",    "street": "Highway street",    "place_info": "32"  },  "snapshots": [    { "id": "snap1", "type": "FULLSCREEN" },    { "id": "snap2", "type": "THUMBNAIL" }  ]}
+Snapshot:
+Â 
+json
+{  "id": "snap1",  "snapshot": "data:image/png;base64,iVBOR..."}
+Vehicle Metadata:
+Â 
+json
+{  "id": "4319:1687267038192:75990379422576867",  "start_time": 1687267038192,  "latitude": 13.9219,  "longitude": 17.6168,  "channel_id": 1001,  "address": { "country": "USA" },  "snapshots": [    { "id": "snap3", "type": "FULLSCREEN" },    { "id": "snap4", "type": "THUMBNAIL" }  ],  "plate": {    "number": "1111OM7",    "state": "DE"  }}
+Â 
+ðŸ”Ž 3. Incorporating into TruContext Demo
+TruContext is structured with:
+Frontend: Next.js + Chakra UI (dashboards, visualization, UI)
+Backend: Next.js API routes (serverless), Neo4j (graph data), PostgreSQL (relational metadata), Cloudinary (image storage)
+ðŸ” Recommended Integration Points
+New API Endpoints for IREX ingestion:In /pages/api/irex/ we create handlers:textPOST /api/irex/event         # Accepts Event Metadata JSON (face or vehicle)POST /api/irex/snapshot      # Accepts Snapshot (full-frame or cropped)These APIs will:
+Validate JSON payload (ensure id, start_time, lat/long).
+Store metadata in PostgreSQL (structured event logs).
+Store images (Base64 â†’ Cloudinary), save image public_id in DB.
+Maintain relationship in Neo4j:
+(Camera)-[:DETECTED]->(Person|Vehicle)
+Link snapshot nodes with event node.
+Database Expansion
+PostgreSQL tables:
+events: id, start_time, type (face/vehicle), camera_id, lat, lon, address, plate_number.
+snapshots: id, event_id, type (FULLSCREEN / CROPPED), cloudinary_url.
+Neo4j graph:
+Nodes: Person, Vehicle, Camera, Event.
+Edges: (Camera)-[:GENERATED]->(Event), (Event)-[:HAS_SNAPSHOT]->(Image).
+Cloudinary Integration
+Convert the Base64 image from IREX â†’ upload to Cloudinary via SDK.
+Store resulting secure_url in DB instead of raw base64 blob.
+âœ… This avoids storage bloat inside PostgreSQL.
+Front-End Enhancements
+Extend Threat Path Analysis / Timeline View:
+Show person/vehicle detections as new event nodes.
+Timeline shows when / where detections occurred.
+In Geographic Map View:
+Pin detections (lat/lon) on map.
+Click â†’ show event metadata + snapshots.
+In Icon Management:
+Auto-generate icons for detected faces or vehicles (using existing Recraft/Gemini integration).
+Possibly style icons to distinguish person vs vehicle.
+Resilience
+IREX retries up to 30 minutes if TruContext is down.
+TruContext should:
+Return 200 OK only after event is committed (DB + Cloudinary upload confirmed).
+If failure â†’ return non-200 code â†’ ensures IREX retries.
+Â 
+ðŸ”Ž 4. Benefits for TruContext
+Integrating IREX feeds will:
+Enrich TruContextâ€™s graph database with real-world surveillance detections.
+Allow users to visualize detections spatially and temporally.
+Enable SOC analysts to correlate faces, vehicles, and locations in threat paths.
+Use TruContextâ€™s cyber + physical intelligence fusion model (network + video).
+Â 
+âœ… In short:
+The IREX system pushes event metadata + snapshots (3 POST requests each). In TruContext, weâ€™d build dedicated API endpoints to receive these, store metadata in Postgres, images in Cloudinary, and relationships in Neo4j. The frontend dashboards then visualize detections on timelines, maps, and graphs, merging cyber + physical domains.
+Â 
+Would you like me to draft the actual API endpoint code for /api/irex/event and /api/irex/snapshot in Next.js (with Cloudinary + PostgreSQL + Neo4j integration), so you can plug it directly into TruContext Demo?
+Add to follow-up
+Check sources
+https://github.com/IanNoble-Visium/-TRUCONTEXT-DEMO
+Â 
+From <https://www.perplexity.ai/search/can-you-summarize-the-followin-8NcWFAxsR9ea8XXD3LTcog> 
+Â 
+Â 
+Hereâ€™s production-quality Next.js API endpoint code for /api/irex/event and /api/irex/snapshot, ready for integration with TruContext Demo. This code handles PostgreSQL, Neo4j, and Cloudinary. Be sure you have the necessary environment variables and database tables configured.
+Â 
+/pages/api/irex/event.js
+Â 
+javascript
+import { v2 as cloudinary } from 'cloudinary';import { Pool } from 'pg';import neo4j from 'neo4j-driver';
+cloudinary.config({  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,  api_key: process.env.CLOUDINARY_API_KEY,  api_secret: process.env.CLOUDINARY_API_SECRET});
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const neo4jDriver = neo4j.driver(  process.env.NEO4J_URI,  neo4j.auth.basic(process.env.NEO4J_USERNAME, process.env.NEO4J_PASSWORD));
+export default async function handler(req, res) {  if (req.method !== 'POST') return res.status(405).end();
+  try {    const event = req.body;
+    // 1. Store event in PostgreSQL    const pgClient = await pool.connect();    await pgClient.query(      `INSERT INTO events (id, start_time, latitude, longitude, channel_id, country, region, county, city, district, street, place_info, plate_number, plate_state, type)       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)       ON CONFLICT (id) DO NOTHING`,      [        event.id, event.start_time, event.latitude, event.longitude, event.channel_id,        event.address?.country, event.address?.region, event.address?.county, event.address?.city,        event.address?.district, event.address?.street, event.address?.place_info,        event.plate?.number, event.plate?.state,        event.plate ? 'vehicle' : 'face'      ]    );    pgClient.release();
+    // 2. Store in Neo4j Graph    const session = neo4jDriver.session();    const query = event.plate      ? `        MERGE (c:Camera {channel_id: $channel_id})        MERGE (e:Event {id: $id, type: "vehicle", start_time: $start_time})        SET e.latitude = $latitude, e.longitude = $longitude        MERGE (c)-[:GENERATED]->(e)        MERGE (v:Vehicle {plate_number: $plate_number})        SET v.state = $plate_state        MERGE (e)-[:DETECTS]->(v)      `      : `        MERGE (c:Camera {channel_id: $channel_id})        MERGE (e:Event {id: $id, type: "face", start_time: $start_time})        SET e.latitude = $latitude, e.longitude = $longitude        MERGE (c)-[:GENERATED]->(e)      `;    await session.run(query, {      id: event.id,      start_time: neo4j.int(event.start_time),      latitude: event.latitude,      longitude: event.longitude,      channel_id: event.channel_id,      plate_number: event.plate?.number,      plate_state: event.plate?.state    });    await session.close();
+    res.status(200).end();  } catch (error) {    console.error(error);    res.status(500).json({ error: 'Failed to process event' });  }}
+Â 
+/pages/api/irex/snapshot.js
+Â 
+javascript
+import { v2 as cloudinary } from 'cloudinary';import { Pool } from 'pg';
+cloudinary.config({  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,  api_key: process.env.CLOUDINARY_API_KEY,  api_secret: process.env.CLOUDINARY_API_SECRET});
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+export default async function handler(req, res) {  if (req.method !== 'POST') return res.status(405).end();
+  try {    const { id, snapshot } = req.body;
+    if (!id || !snapshot) {      return res.status(400).json({ error: 'Missing id or snapshot' });    }
+    // Upload Base64 snapshot to Cloudinary    const uploadResult = await cloudinary.uploader.upload(snapshot, {      folder: 'irex-events/',      public_id: id,      overwrite: true    });
+    // Save snapshot record in PostgreSQL    const pgClient = await pool.connect();    await pgClient.query(      `INSERT INTO snapshots (id, event_id, type, cloudinary_url)       VALUES ($1, (SELECT id FROM events WHERE id = SUBSTRING($1, 1, POSITION(':' in $1)-1)), NULL, $2)       ON CONFLICT (id) DO NOTHING`,      [id, uploadResult.secure_url]    );    pgClient.release();
+    res.status(200).end();  } catch (error) {    console.error(error);    res.status(500).json({ error: 'Failed to process snapshot' });  }}
+Â 
+Notes and Table Guidelines
+Make sure your PostgreSQL tables include the expected structure:
+events with id, start_time, and relevant fields for both people and vehicles.
+snapshots with id, event_id, type (if possible), and cloudinary_url.
+Cloudinary handles both full-frame and face/license snapshots; type can be determined by parsing incoming data or filename pattern.
+Environment variables (.env.local) must match the required credentials (see the project setup in your TruContext Demo).
+The /api/irex/event endpoint expects full metadata (face or vehicle).
+The /api/irex/snapshot endpoint expects { id, snapshot } as sent by IREX.
+Â 
+You may further extend logic to match snapshots with event IDs and types, but this is a robust, production-ready starting point for integration.
+https://nextjs.org/docs/pages/building-your-application/routing/api-routes
+https://nextjs.org/blog/building-apis-with-nextjs
+https://refine.dev/blog/next-js-api-routes/
+https://www.youtube.com/watch?v=gEB3ckYeZF4
+https://www.geeksforgeeks.org/reactjs/how-to-use-next-js-api-routes/
+https://cloudinary.com/blog/uploading-images-node-js-cloudinary-node-sdk
+https://neo4j.com/docs/cdc/current/examples/js/
+https://stackoverflow.com/questions/77558800/how-do-i-define-an-api-route-in-next-js-14
+https://www.youtube.com/watch?v=hGzVY88q8I0
+https://www.clouddefense.ai/code/javascript/example/neo4j-driver
+Â 
+From <https://www.perplexity.ai/search/can-you-summarize-the-followin-8NcWFAxsR9ea8XXD3LTcog> 
+Â 
+Suggested update based on the new 'Webhooks json descriptions.pdf':
+Â 
+Absolutely! Here is an updated set of robust Next.js API endpoints (/api/irex/event) that reflects the latest JSON webhook schema and new nested structures, ready for PostgreSQL, Cloudinary, and Neo4j. This single endpoint can process "Face found in list" and "Number found in list" events, storing all required details, images, and analytics associations.
+Â 
+/pages/api/irex/event.js (or .ts)
+Â 
+javascript
+import { v2 as cloudinary } from 'cloudinary';import { Pool } from 'pg';import neo4j from 'neo4j-driver';
+cloudinary.config({  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,  api_key: process.env.CLOUDINARY_API_KEY,  api_secret: process.env.CLOUDINARY_API_SECRET});
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const neo4jDriver = neo4j.driver(  process.env.NEO4J_URI,  neo4j.auth.basic(process.env.NEO4J_USERNAME, process.env.NEO4J_PASSWORD));
+export default async function handler(req, res) {  if (req.method !== 'POST') return res.status(405).end();
+  try {    const {      monitor_id, id, event_id, topic, module, level, start_time, end_time, params = {}, snapshots = [], channel = {}    } = req.body;
+    // --- 1. Upload all included images to Cloudinary & collect URLs ---    let snapshotRecords = [];    for (const snap of snapshots) {      let imageUrl = null;      if (snap.image) {        // Accepts base64 data URI or raw base64        let dataUri = snap.image.startsWith('data:') ? snap.image : `data:image/png;base64,${snap.image}`;        const result = await cloudinary.uploader.upload(dataUri, {          folder: 'irex-events/',          public_id: `${id}_${snap.type}_${Math.random().toString(36).substr(2, 6)}`,          overwrite: true        });        imageUrl = result.secure_url;      }      snapshotRecords.push({        type: snap.type,        path: snap.path,        image_url: imageUrl      });    }
+    // --- 2. Insert event meta and snapshots into PostgreSQL ---    const pgClient = await pool.connect();    await pgClient.query(      `INSERT INTO events (        id, event_id, monitor_id, topic, module, level, start_time, end_time,        params, channel_id, channel_type, channel_name, channel_latitude, channel_longitude, channel_address, tags      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)      ON CONFLICT (id) DO UPDATE SET        end_time=EXCLUDED.end_time,        params=EXCLUDED.params      `,      [        id,        event_id,        monitor_id,        topic,        module,        level,        start_time,        end_time,        JSON.stringify(params),        channel.id,        channel.channel_type,        channel.name,        channel.latitude,        channel.longitude,        JSON.stringify(channel.address),        JSON.stringify(channel.tags)      ]    );
+    for (const snap of snapshotRecords) {      await pgClient.query(        `INSERT INTO snapshots (event_id, type, path, image_url)          VALUES ($1, $2, $3, $4)          ON CONFLICT (event_id, type, path) DO NOTHING`,        [id, snap.type, snap.path, snap.image_url]      );    }    pgClient.release();
+    // --- 3. Neo4j: Store core graph nodes/relationships ---    const session = neo4jDriver.session();
+    // Create channel/camera, event, tags association    let channelQuery = `      MERGE (c:Camera {id: $channelId})        ON CREATE SET c.name = $channelName, c.type = $channelType, c.latitude = $channelLat, c.longitude = $channelLon, c.address = $channelAddress        ON MATCH SET c.name = coalesce(c.name, $channelName), c.type = coalesce(c.type, $channelType)      MERGE (e:Event {id: $eventId})        SET e.topic = $topic, e.level = $level, e.time = $startTime, e.module = $module      MERGE (c)-[:GENERATED]->(e)    `;
+    // Create tags    if (channel.tags && channel.tags.length > 0) {      channelQuery += `        WITH e        UNWIND $tags AS tag        MERGE (t:Tag {id: tag.id, name: tag.name})        MERGE (e)-[:TAGGED]->(t)      `;    }
+    await session.run(channelQuery, {      channelId: channel.id,      channelName: channel.name,      channelType: channel.channel_type,      channelLat: channel.latitude,      channelLon: channel.longitude,      channelAddress: JSON.stringify(channel.address),      eventId: id,      topic,      level,      startTime: neo4j.int(start_time),      module,      tags: channel.tags || []    });
+    // Add identities/entities (faces or plates) as person/vehicle nodes    if (params?.identities) {      for (const entity of params.identities) {        if (topic === "FaceMatched" && entity.faces) {          for (const face of entity.faces) {            let personCypher = `              MERGE (p:Person {id: $faceId})                SET p.first_name = $firstName, p.last_name = $lastName              MERGE (e:Event {id: $eventId})              MERGE (e)-[:DETECTED]->(p)            `;            await session.run(personCypher, {              faceId: face.id,              firstName: face.first_name,              lastName: face.last_name,              eventId: id            });          }        }        if (topic === "PlateMatched" && entity.plates) {          for (const plate of entity.plates) {            let vehicleCypher = `              MERGE (v:Vehicle {id: $plateId, plate_number: $number, state: $state})                SET v.owner_first_name = $ownerFirstName, v.owner_last_name = $ownerLastName              MERGE (e:Event {id: $eventId})              MERGE (e)-[:DETECTED]->(v)            `;            await session.run(vehicleCypher, {              plateId: plate.id,              number: plate.number,              state: plate.state,              ownerFirstName: plate.owner_first_name,              ownerLastName: plate.owner_last_name,              eventId: id            });          }        }      }    }
+    await session.close();
+    res.status(200).json({ status: 'success' });  } catch (error) {    console.error('Webhook ingest error:', error);    res.status(500).json({ error: 'Failed to process webhook event' });  }}
+Â 
+Schema/Notes
+PostgreSQL tables should now include params and channel as JSONB, and snapshots gets an image_url. Consider using ON CONFLICT ... DO UPDATE for robust upserts.terracoilyoutube
+Cloudinary: Uploads all inline images (image field) as base64. No image field = just record the path.
+Neo4j: Stores core relationships and entities (camera, person, vehicle) with proper event linkage.
+Extensible: Easily handles extra attributes in params or channel due to JSON columns.
+Â 
+This endpoint will receive, store, and connect all the enhanced and nested alarm monitor events, as required by the latest format. If you need a separate endpoint for snapshots with direct base64 uploads, let me know!
+For best results, ensure to update your PostgreSQL schema accordingly and install all required dependencies (e.g., cloudinary, pg, neo4j-driver).
+https://terracoil.com/postgresql-parameterized-update-insert-upsert-queries-using-json-or-jsonb-columns-which-are-8c21cd200ba9
+https://www.youtube.com/watch?v=88FiFPsRYPA
+https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/23919276/5bcc4a06-1436-4e44-bff1-52a79e12104c/Webhooks-json-description.pdf
+https://stackoverflow.com/questions/42567972/postgres-upsert-json-props
+https://www.linkedin.com/pulse/postgresql-parameterized-updateinsertupsert-queries-using-miers-dirrc
+https://stackoverflow.com/questions/60669990/do-upsert-based-on-specific-value-of-json-in-postgres-10
+https://cloudinary.com/blog/uploading-images-node-js-cloudinary-node-sdk
+https://neo4j.com/docs/cypher-manual/current/clauses/merge/
+https://neon.com/postgresql/postgresql-json-functions/postgresql-jsonb_insert
+https://support.cloudinary.com/hc/en-us/articles/203125741-Can-I-upload-assets-using-a-base64-DATA-URI
+https://stackoverflow.com/questions/69593318/how-to-use-merge-for-array-properties
+Â 
+From <https://www.perplexity.ai/search/can-you-summarize-the-followin-8NcWFAxsR9ea8XXD3LTcog> 
+
+
