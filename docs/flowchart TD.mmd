@@ -1,0 +1,65 @@
+flowchart TD
+    subgraph Client["IREX / External Systems"]
+        A1["Legacy: POST /ingest/event"] 
+        A2["Legacy: POST /ingest/snapshot"]
+        A3["Modern: POST /webhook/irex"]
+        H["GET /health"]
+    end
+
+    subgraph API["ELI Ingestion API (Node.js + Express)"]
+        style API fill:#f5f5f5,stroke:#333,stroke-width:1px
+        H --> HC["Health Check Handler → {status:ok}"]
+
+        A1 --> EHandler["Event Hanlogsdler\n(/ingest/event)"]
+        A2 --> SHandler["Snapshot Handler\n(/ingest/snapshot)"]
+        A3 --> WHHandler["Webhook Handler\n(/webhook/irex)"]
+
+        EHandler --> ValidateEvt["Zod Validation\n(Event payload)"]
+        SHandler --> ValidateSnap["Zod Validation\n(Snapshot payload)"]
+        WHHandler --> ValidateWH["Zod Validation\n(Webhook payload)"]
+
+        ValidateEvt -- Valid --> DBWriteEvt["Insert/Update\nEvent metadata in PostgreSQL"]
+        ValidateSnap -- Valid --> ImgProcSnap["Process / Upload image to Cloudinary"]
+        ValidateWH -- Valid --> MultiProc["Parse + Persist Event, Channel, Tags"]
+
+        DBWriteEvt --> NeoWriteEvt["Update Graph Nodes in Neo4j"]
+        ImgProcSnap --> Cloudinary["Upload snapshot to Cloudinary (PNG/JPEG)"]
+        MultiProc --> DBWriteWH["Insert into PostgreSQL"]
+        MultiProc --> NeoWriteWH["Update Neo4j Graph"]
+        MultiProc --> ImgProcWH["Upload snapshot field → Cloudinary"]
+    end
+
+    subgraph DBs["Datastores"]
+        PSQL["PostgreSQL\n(Relational Events, Metadata, Channels)"]
+        NEO4J["Neo4j Graph DB\n(Relationships & Tags)"]
+        CLOUD["Cloudinary\n(Image Storage/CDN)"]
+    end
+
+    DBWriteEvt --> PSQL
+    DBWriteWH --> PSQL
+    NeoWriteEvt --> NEO4J
+    NeoWriteWH --> NEO4J
+    ImgProcSnap --> CLOUD
+    ImgProcWH --> CLOUDlogs
+
+    subgraph Optional["Debug Dashboard"]
+        D1["GET /debug?token=..."]
+        D2["Requires DEBUG_DASHBOARD_ENABLED=true"]
+        D3["If token missing/invalid → 401"]
+    end
+
+    D1 --> API
+
+    subgraph ErrorHandling["Error & Mock Behavior"]
+        E400["400 Bad Request → Validation Failures (Zod details[])"]
+        E401["401 Unauthorized → Debug only"]
+        E404["404 → Debug disabled/not found"]
+        E500["500 Internal Error → Misconfig/Env vars"]
+        Mock["MOCK_MODE=true → Skip DB/Cloudinary/Neo4j writes, still return 200"]
+    end
+
+    ValidateEvt -- Invalid --> E400
+    ValidateSnap -- Invalid --> E400
+    ValidateWH -- Invalid --> E400
+    API --> E500
+    API --> Mock

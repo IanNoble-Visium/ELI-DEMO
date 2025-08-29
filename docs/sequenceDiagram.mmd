@@ -1,0 +1,56 @@
+sequenceDiagram
+    autonumber
+    participant IREX as IREX Platform
+    participant API as ELI Ingestion API
+    participant PG as PostgreSQL
+    participant NEO as Neo4j
+    participant CLD as Cloudinary
+    participant DBG as Debug Dashboard
+
+    %% Legacy Format: Two-step (event, then snapshot)
+    IREX->>API: POST /ingest/event (event + snapshot IDs)
+    API->>API: Validate event payload (Zod)
+    alt Valid Event
+        API->>PG: Insert/Update event & metadata
+        API->>NEO: Update event nodes/relations
+        API-->>IREX: 200 OK (event registered)
+    else Invalid Event
+        API-->>IREX: 400 Bad Request (validation error)
+    end
+
+    IREX->>API: POST /ingest/snapshot (snapshot ID + image data)
+    API->>API: Validate snapshot payload (Zod)
+    alt Valid Snapshot
+        API->>CLD: Upload image (snapshot) to Cloudinary
+        API-->>IREX: 200 OK (snapshot accepted)
+    else Invalid Snapshot
+        API-->>IREX: 400 Bad Request (validation error)
+    end
+
+    %% Modern Webhook Format: Single call
+    IREX->>API: POST /webhook/irex (event, metadata, channel, tags, snapshots)
+    API->>API: Validate webhook payload (Zod)
+    alt Valid Webhook
+        API->>PG: Insert/Update event, channel, tags, metadata
+        API->>NEO: Update graph (event, channel, tags)
+        API->>CLD: Upload image(s) to Cloudinary
+        API-->>IREX: 200 OK (event+images accepted)
+    else Invalid Webhook
+        API-->>IREX: 400 Bad Request (validation error)
+    end
+
+    %% Health check
+    IREX->>API: GET /health
+    API-->>IREX: { "status": "ok" }
+
+    %% Optional Debug Dashboard
+    IREX->>API: GET /debug?token=...
+    alt Debug Enabled/Token Valid
+        API->>DBG: Serve dashboard
+        DBG-->>IREX: Debug UI/JSON
+    else Debug Disabled/Token Invalid
+        API-->>IREX: 401/404 Error
+    end
+
+    %% Mock Mode
+    Note over API: If MOCK_MODE=true, DB/Cloudinary/Neo4j writes skipped, endpoints return 200
