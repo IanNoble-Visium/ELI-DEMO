@@ -51,6 +51,7 @@ router.get('/debug', requireDebugAccess, async (req, res) => {
       .controls{display:flex;gap:8px;align-items:center;padding:12px}
       input,select,button{background:#0e152b;color:var(--text);border:1px solid #1d2744;border-radius:6px;padding:6px 8px}
       button.primary{background:var(--accent);color:#041220;border-color:var(--accent)}
+      button.danger{background:#d9534f;color:#fff;border-color:#d9534f}
       #neo4j-graph{height:420px;border-top:1px solid #1d2744}
       @media (max-width:600px){ th,td{font-size:12px} }
     </style>
@@ -65,6 +66,7 @@ router.get('/debug', requireDebugAccess, async (req, res) => {
       <button class="tab active" data-tab="pg">PostgreSQL</button>
       <button class="tab" data-tab="neo4j">Neo4j</button>
       <button class="tab" data-tab="cloudinary">Cloudinary</button>
+      <button class="tab" data-tab="data">Data Management</button>
     </div>
 
     <section id="panel-pg" class="panel active">
@@ -95,6 +97,17 @@ router.get('/debug', requireDebugAccess, async (req, res) => {
       <div id="cloudinary-content"></div>
     </section>
 
+    <section id="panel-data" class="panel">
+      <div class="controls">
+        <button class="danger" onclick="openClearModal()">Clear All Data</button>
+        <label style="margin-left:auto">Dry run <input id="dry-run" type="checkbox" /></label>
+      </div>
+      <div id="data-content" style="padding:12px;color:#a8b3cf">
+        Use this to reset all data stores for fresh testing. Only available when DEBUG_DASHBOARD_ENABLED=true.
+      </div>
+    </section>
+
+
     <script>
       const tabs = document.querySelectorAll('.tab');
       tabs.forEach(t=>t.addEventListener('click',()=>{
@@ -106,6 +119,13 @@ router.get('/debug', requireDebugAccess, async (req, res) => {
 
       const token = '${process.env.DEBUG_DASHBOARD_TOKEN || ''}';
       const headers = token ? { 'X-Debug-Token': token } : {};
+      const clearEnabled = ${process.env.DEBUG_DASHBOARD_ENABLED === 'true' ? 'true' : 'false'};
+      if(!clearEnabled){
+        const btn = document.querySelector('#panel-data .danger');
+        if(btn){ btn.setAttribute('disabled','disabled'); btn.title='Set DEBUG_DASHBOARD_ENABLED=true to enable'; }
+        const dc = document.getElementById('data-content');
+        if(dc){ dc.textContent = 'Disabled. Set DEBUG_DASHBOARD_ENABLED=true to enable this feature.'; }
+      }
 
       function fmtUTC(v){
         try{
@@ -211,6 +231,42 @@ router.get('/debug', requireDebugAccess, async (req, res) => {
 
       function renderTable(rows, cols){
         if(!rows || rows.length===0) return '<div class="error">No rows</div>';
+
+      // Data Management: Clear All Data modal and actions
+      let clearModalEl = null;
+      function openClearModal(){
+        if(clearModalEl){ clearModalEl.remove(); clearModalEl=null; }
+        const msg = 'This will delete:\n\n• PostgreSQL: events and snapshots\n• Neo4j: all nodes and relationships\n• Cloudinary: all images in the configured folder\n\nAre you sure?';
+        clearModalEl = document.createElement('div');
+        clearModalEl.innerHTML = '
+          <div style="position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:9999">\
+            <div style="background:#0e152b;border:1px solid #1d2744;border-radius:8px;max-width:520px;width:92%;padding:16px;color:#e6eefc">\
+              <h3 style="margin:0 0 8px 0">Confirm Clear All Data</h3>\
+              <pre style="white-space:pre-wrap;background:#0b0f1e;border:1px solid #1d2744;padding:8px;border-radius:6px;color:#a8b3cf">'+msg+'<\/pre>\
+              <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">\
+                <button onclick="closeClearModal()">Cancel<\/button>\
+                <button class="danger" onclick="confirmClearAll()">Yes, Clear<\/button>\
+              <\/div>\
+            <\/div>\
+          <\/div>';
+        document.body.appendChild(clearModalEl);
+      }
+      function closeClearModal(){ if(clearModalEl){ clearModalEl.remove(); clearModalEl=null; } }
+
+      async function confirmClearAll(){
+        const dry = document.getElementById('dry-run')?.checked ? 'true' : 'false';
+        const el = document.getElementById('data-content');
+        el.innerHTML = '<div class="error" style="color:#ffd24d">Clearing... please wait</div>';
+        try{
+          const r = await fetch('/api/debug/clear-all?dry_run='+dry, { method:'POST', headers });
+          const j = await r.json();
+          if(!r.ok){ throw new Error(j && j.error || 'Failed'); }
+          el.innerHTML = '<pre style="white-space:pre-wrap;padding:12px;color:#a8b3cf">'+escapeHtml(JSON.stringify(j, null, 2))+'</pre>';
+        }catch(e){
+          el.innerHTML = '<div class="error">'+escapeHtml(e && e.message || 'Failed to clear')+'</div>';
+        }finally{ closeClearModal(); }
+      }
+
         const head = '<tr>'+cols.map(function(c){return '<th>'+c+'</th>';}).join('')+'</tr>';
         const body = rows.map(function(r){return '<tr>'+cols.map(function(c){return '<td>'+escapeHtml(r[c])+'</td>';}).join('')+'</tr>';}).join('');
         return '<div style="overflow:auto"><table>'+head+body+'</table></div>';
@@ -302,6 +358,102 @@ router.get('/api/debug/cloudinary', requireDebugAccess, async (req, res) => {
     })) : [];
     res.json({ resources });
   } catch (err) {
+
+// POST /api/debug/clear-all
+// Safely clears data from Postgres, Neo4j, and Cloudinary. Respects mock mode.
+// Includes optional dry_run and simple in-memory rate limiting.
+const rateLimit = { last: 0 };
+router.post('/api/debug/clear-all', requireDebugAccess, async (req, res) => {
+  // Only enable when explicitly allowed
+  const enabled = process.env.DEBUG_DASHBOARD_ENABLED === 'true' || config.env !== 'production';
+  if (!enabled) return res.status(404).end();
+
+  const dryRun = String(req.query.dry_run || 'false') === 'true';
+  const now = Date.now();
+  // basic rate limiting: allow at most once per 10 seconds
+  if (now - rateLimit.last < 10_000) {
+    return res.status(429).json({ error: 'Too Many Requests. Try again shortly.' });
+  }
+  rateLimit.last = now;
+
+  const results = { mock: config.mockMode, dryRun, postgres: {}, neo4j: {}, cloudinary: {} };
+
+  // Postgres: counts for dry-run, else delete snapshots then events
+  try {
+    if (dryRun) {
+      if (!config.mockMode) {
+        const s = await query('SELECT count(*)::int AS c FROM snapshots');
+        const e = await query('SELECT count(*)::int AS c FROM events');
+        results.postgres = { would_delete_snapshots: s.rows[0]?.c || 0, would_delete_events: e.rows[0]?.c || 0 };
+      } else {
+        results.postgres = { skipped: true };
+      }
+    } else if (!config.mockMode) {
+      let rc1 = 0, rc2 = 0;
+      const r1 = await query('DELETE FROM snapshots'); rc1 = r1.rowCount || 0;
+      const r2 = await query('DELETE FROM events'); rc2 = r2.rowCount || 0;
+      results.postgres = { deleted_snapshots: rc1, deleted_events: rc2 };
+    } else {
+      results.postgres = { skipped: true };
+    }
+  } catch (err) {
+    results.postgres = { error: String(err.message || err) };
+  }
+
+  // Neo4j: dry-run via count, else detach delete
+  try {
+    if (dryRun) {
+      if (!config.mockMode) {
+        const session = getSession();
+        try {
+          const r = await session.run('MATCH (n) RETURN count(n) AS cnt');
+          const cnt = r.records?.[0]?.get('cnt').toInt?.() ?? r.records?.[0]?.get('cnt') ?? 0;
+          results.neo4j = { would_delete_nodes: Number(cnt) };
+        } finally { try{ await session.close(); }catch(_){} }
+      } else {
+        results.neo4j = { skipped: true };
+      }
+    } else if (!config.mockMode) {
+      const session = getSession();
+      try { await session.run('MATCH (n) DETACH DELETE n'); results.neo4j = { cleared: true }; }
+      finally { try{ await session.close(); }catch(_){} }
+    } else {
+      results.neo4j = { skipped: true };
+    }
+  } catch (err) {
+    results.neo4j = { error: String(err.message || err) };
+  }
+
+  // Cloudinary: dry-run via search count, else delete by prefix
+  try {
+    const folder = require('../config').cloudinary.folder || '';
+    if (dryRun) {
+      if (!config.mockMode && folder) {
+        const out = await cloudinary.search.expression(`folder=${folder}`).max_results(1).execute();
+        const total = out?.total_count ?? out?.total ?? 0;
+        results.cloudinary = { folder, would_delete_resources: total };
+      } else {
+        results.cloudinary = { skipped: true, folder };
+      }
+    } else if (!config.mockMode && folder) {
+      const prefix = folder.endsWith('/') ? folder : folder + '/';
+      await cloudinary.api.delete_resources_by_prefix(prefix);
+      try { await cloudinary.api.delete_folder(folder); } catch (_) {}
+      results.cloudinary = { cleared: true, folder };
+    } else {
+      results.cloudinary = { skipped: true, folder };
+    }
+  } catch (err) {
+    results.cloudinary = { error: String(err.message || err) };
+  }
+
+  const anyError = [results.postgres.error, results.neo4j.error, results.cloudinary.error].some(Boolean);
+  if (anyError) { logger.warn({ results }, 'debug clear-all completed with errors'); }
+  else { logger.info({ results }, 'debug clear-all completed successfully'); }
+
+  return res.status(anyError ? 207 : 200).json(results);
+});
+
     // Fallback to resources listing by prefix
     try {
       const out = await cloudinary.api.resources({ type: 'upload', prefix: folder ? folder + '/' : undefined, max_results: limit });
@@ -309,6 +461,8 @@ router.get('/api/debug/cloudinary', requireDebugAccess, async (req, res) => {
         public_id: r.public_id, secure_url: r.secure_url, created_at: r.created_at, folder: r.folder
       })) : [];
       return res.json({ resources });
+
+
     } catch (e2) {
       logger.error({ err: e2 }, 'debug cloudinary fetch failed');
       return res.status(500).json({ error: 'Failed to query Cloudinary' });
