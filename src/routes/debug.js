@@ -107,6 +107,26 @@ router.get('/debug', requireDebugAccess, async (req, res) => {
       const token = '${process.env.DEBUG_DASHBOARD_TOKEN || ''}';
       const headers = token ? { 'X-Debug-Token': token } : {};
 
+      function fmtUTC(v){
+        try{
+          if(v==null || v==='') return '';
+          let d;
+          if (v instanceof Date) {
+            d = v;
+          } else if (typeof v === 'string') {
+            // Timestamptz from PG often serializes to ISO string; if numeric string, treat as ms
+            const num = Number(v);
+            d = Number.isFinite(num) && v.trim() !== '' && /^[0-9]+$/.test(v.trim()) ? new Date(num) : new Date(v);
+          } else if (typeof v === 'number') {
+            d = new Date(v);
+          } else {
+            return '';
+          }
+          if (isNaN(d.getTime())) return '';
+          return d.toISOString().replace('T',' ').replace('Z',' UTC');
+        }catch(_){ return ''; }
+      }
+
       let pgOffset = 0;
       window.loadPg = async function(reset){
         const limit = parseInt(document.getElementById('pg-limit').value || 50, 10);
@@ -119,9 +139,9 @@ router.get('/debug', requireDebugAccess, async (req, res) => {
           if(j.mock) { el.innerHTML = '<div class="error">Mock mode enabled — showing no live data.</div>'; return; }
           el.innerHTML = '<div style="padding:12px">' +
             '<h3 style="margin:0 0 8px 0">Recent Events</h3>' +
-            renderTable(j.events.map(function(e){return {id:e.id,start_time:new Date(e.start_time).toISOString().replace('T',' ').replace('Z',' UTC'),topic:e.topic,channel_id:e.channel_id,created_at:e.created_at ? new Date(e.created_at).toISOString().replace('T',' ').replace('Z',' UTC') : ''};}), ['id','start_time','topic','channel_id','created_at']) +
+            renderTable(j.events.map(function(e){return {id:e.id,start_time:fmtUTC(e.start_time),topic:e.topic,channel_id:e.channel_id,created_at:fmtUTC(e.created_at)};}), ['id','start_time','topic','channel_id','created_at']) +
             '<h3 style="margin:16px 0 8px 0">Recent Snapshots</h3>' +
-            renderTable(j.snapshots.map(function(s){return {id:s.id,event_id:s.event_id,type:s.type,path:s.path,image_url:s.image_url,created_at:s.created_at ? new Date(s.created_at).toISOString().replace('T',' ').replace('Z',' UTC') : ''};}), ['id','event_id','type','path','image_url','created_at']) +
+            renderTable(j.snapshots.map(function(s){return {id:s.id,event_id:s.event_id,type:s.type,path:s.path,image_url:s.image_url,created_at:fmtUTC(s.created_at)};}), ['id','event_id','type','path','image_url','created_at']) +
           '</div>';
           const page = Math.floor(pgOffset/limit)+1; document.getElementById('pg-page').textContent = 'Page: '+page;
         }catch(e){ el.innerHTML = '<div class="error">'+(e && e.message || 'Failed to load')+'</div>'; }

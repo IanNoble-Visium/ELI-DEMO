@@ -146,21 +146,41 @@ async function writeGraph(e, snapshots) {
 
 router.post('/irex', async (req, res) => {
   try {
-    const parsed = WebhookSchema.parse(req.body);
+    const body = req.body;
+    const items = Array.isArray(body) ? body : [body];
 
-    // Upload images (if any)
-    const uploaded = [];
-    for (const snap of parsed.snapshots) {
-      const result = await uploadSnapshotIfNeeded(snap, parsed.id);
-      uploaded.push(result);
+    const results = [];
+    const errors = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const candidate = items[i];
+      const parsedResult = WebhookSchema.safeParse(candidate);
+      if (!parsedResult.success) {
+        errors.push({ index: i, issues: parsedResult.error.issues });
+        continue;
+      }
+      const parsed = parsedResult.data;
+
+      // Upload images (if any)
+      const uploaded = [];
+      for (const snap of parsed.snapshots) {
+        const result = await uploadSnapshotIfNeeded(snap, parsed.id);
+        uploaded.push(result);
+      }
+
+      // Persist
+      await saveEventToPostgres(parsed);
+      await saveSnapshotsToPostgres(parsed.id, uploaded);
+      await writeGraph(parsed, uploaded);
+
+      results.push({ id: parsed.id, snapshots: uploaded.length });
     }
 
-    // Persist
-    await saveEventToPostgres(parsed);
-    await saveSnapshotsToPostgres(parsed.id, uploaded);
-    await writeGraph(parsed, uploaded);
+    if (results.length === 0 && errors.length > 0) {
+      return res.status(400).json({ error: 'Invalid payload', details: errors });
+    }
 
-    return res.status(200).json({ status: 'success' });
+    return res.status(200).json({ status: 'success', processed: results.length, failed: errors.length, results, errors: errors.length ? errors : undefined });
   } catch (err) {
     logger.error({ err }, 'Error in /webhook/irex');
     if (err instanceof z.ZodError) {
