@@ -119,9 +119,9 @@ router.get('/debug', requireDebugAccess, async (req, res) => {
           if(j.mock) { el.innerHTML = '<div class="error">Mock mode enabled — showing no live data.</div>'; return; }
           el.innerHTML = '<div style="padding:12px">' +
             '<h3 style="margin:0 0 8px 0">Recent Events</h3>' +
-            renderTable(j.events, ['id','start_time','topic','channel_id']) +
+            renderTable(j.events.map(function(e){return {id:e.id,start_time:new Date(e.start_time).toISOString().replace('T',' ').replace('Z',' UTC'),topic:e.topic,channel_id:e.channel_id,created_at:e.created_at ? new Date(e.created_at).toISOString().replace('T',' ').replace('Z',' UTC') : ''};}), ['id','start_time','topic','channel_id','created_at']) +
             '<h3 style="margin:16px 0 8px 0">Recent Snapshots</h3>' +
-            renderTable(j.snapshots, ['id','event_id','type','path','image_url','created_at']) +
+            renderTable(j.snapshots.map(function(s){return {id:s.id,event_id:s.event_id,type:s.type,path:s.path,image_url:s.image_url,created_at:s.created_at ? new Date(s.created_at).toISOString().replace('T',' ').replace('Z',' UTC') : ''};}), ['id','event_id','type','path','image_url','created_at']) +
           '</div>';
           const page = Math.floor(pgOffset/limit)+1; document.getElementById('pg-page').textContent = 'Page: '+page;
         }catch(e){ el.innerHTML = '<div class="error">'+(e && e.message || 'Failed to load')+'</div>'; }
@@ -225,7 +225,7 @@ router.get('/api/debug/pg', requireDebugAccess, async (req, res) => {
   if (config.mockMode) return res.json({ mock: true, events: [], snapshots: [] });
   try {
     const ev = await query(
-      `SELECT id, topic, start_time, channel_id FROM events ORDER BY start_time DESC NULLS LAST LIMIT $1 OFFSET $2`,
+      `SELECT id, topic, start_time, channel_id, created_at FROM events ORDER BY start_time DESC NULLS LAST LIMIT $1 OFFSET $2`,
       [limit, offset]
     );
     const sn = await query(
