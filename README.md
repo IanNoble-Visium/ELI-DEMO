@@ -146,3 +146,45 @@ Common causes:
 ### Production smoke test script
 - Run: `npm run test:prod` (targets https://elidemo.visiumtechnologies.com by default)
 - Options: `PROD_BASE_URL=... DEBUG_DASHBOARD_TOKEN=... npm run test:prod`
+
+
+---
+
+### Running tests and verification
+- Unit/integration tests: `npm test`
+- Local smoke test (targets http://localhost:4000): `npm run smoke`
+- Production smoke test (targets the prod base by default): `npm run smoke:prod`
+- Direct production test with custom base:
+  - `node scripts/test-production.js --base https://elidemo.visiumtechnologies.com`
+
+Expected successful production output (example):
+```
+POST /ingest/event      → Status 200
+POST /ingest/snapshot   → Status 200
+POST /webhook/irex      → Status 200 JSON: { status: 'success', processed: 1, failed: 0, results: [ { id: 'evt_mod_...', snapshots: 2 } ] }
+```
+
+### Deployment notes (Vercel)
+- Check logs in Vercel → Projects → eli-demo → Logs. Filter by route (e.g., `/webhook/irex`).
+- Environment variables must be set in Vercel for live writes:
+  - DATABASE_URL, NEO4J_URI/USERNAME/PASSWORD[/DATABASE], CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET[/FOLDER]
+  - Optional: DEBUG_DASHBOARD_ENABLED, DEBUG_DASHBOARD_TOKEN, MOCK_MODE
+
+### Recent fix: /webhook/irex 500 error resolved (Aug 30, 2025)
+- Symptom: Production returned `500 { error: "Failed to process webhook event" }` even though writes appeared in Postgres/Neo4j/Cloudinary.
+- Root cause: For snapshots without an uploaded image, Neo4j merge used `MERGE (i:Image {url: $url})` where `$url` was null. Neo4j cannot merge using a null property value, so the request failed late.
+- Fix (src/routes/webhook.js):
+  - If `image_url` is present → `MERGE (i:Image {url: $url})`
+  - Else if only `path` is present → `MERGE (i:Image {path: $path})`
+  - Else → skip creating the Image node
+- Impact: Mixed snapshots (some with images, some without) are now processed successfully; the endpoint returns 200 with a result summary.
+
+### Troubleshooting tips specific to /webhook/irex
+- If you see a 500 but data seems partially written:
+  - Confirm you are running a build that includes the fix above (Aug 30, 2025 or later).
+  - Inspect Vercel logs for Neo4j errors mentioning "merge" and "null property value".
+- Large payloads/images: keep total request body small (serverless function limits). The service accepts raw base64 or data URIs; prefer small thumbnails for tests.
+
+### Environment flags
+- `MOCK_MODE=true` disables writes to Postgres/Neo4j/Cloudinary but still returns 200s. Useful for demos or quick health checks.
+- `MOCK_MODE=false` (production) performs real writes and is recommended for end-to-end testing.
