@@ -188,3 +188,51 @@ POST /webhook/irex      → Status 200 JSON: { status: 'success', processed: 1, 
 ### Environment flags
 - `MOCK_MODE=true` disables writes to Postgres/Neo4j/Cloudinary but still returns 200s. Useful for demos or quick health checks.
 - `MOCK_MODE=false` (production) performs real writes and is recommended for end-to-end testing.
+
+
+### Webhook Request Logging and Debugging (NEW)
+- New table: webhook_requests (added via migrations/002_webhook_requests.sql). Run `npm run migrate` after pulling changes.
+- Every POST /webhook/irex request is logged, including 200/400/500 outcomes.
+- Captured fields: time, method, path, status_code, host, source_ip, user_agent, content_type, headers (json), request_body (json/raw), response_body (json), error_message, validation_errors (from Zod), processing_time_ms.
+
+#### Debug Dashboard: Webhook Logs tab
+- Visit /debug (with token if configured) and switch to the "Webhook Logs" tab
+- Filters: Status (200/400/500), IP, Path, Limit; with Prev/Next pagination
+- Tables show: Time, Method, Path, Status, Source IP, Time (ms), Error, and JSON snippets of Request/Response
+- Backend API: GET /api/debug/webhook-requests?limit=50&offset=0&status=400&ip=1.2.3.4&path=/webhook/irex
+
+#### Quick verification
+- Minimal payload is accepted (200):
+  - POST /webhook/irex with: { "id": "evt_min", "start_time": 1725024000000 }
+- Payload with channel omitted does not crash Neo4j writer (Event node persists; Camera link is skipped if channel.id missing)
+- 400s are logged with validation issues in webhook_requests and visible in the Webhook Logs tab
+
+### Webhook validation schema updates (Aug 30, 2025)
+- monitor_id, event_id: number or string
+- level: number (0–3) or string; stored as-is
+- snapshots[].type: FULLSCREEN | THUMBNAIL (optional)
+- channel: optional; if absent or id is null, graph write skips Camera MERGE safely
+- Purpose: be permissive for demo and maximize acceptance of real IREX payloads; stricter conformance can be added later
+
+#### Minimal example (200 OK)
+<augment_code_snippet path="README.md" mode="EXCERPT">
+```json
+{
+  "id": "evt_min_001",
+  "start_time": 1725024000000
+}
+```
+</augment_code_snippet>
+
+#### Fetch logged 400s via API
+<augment_code_snippet path="README.md" mode="EXCERPT">
+```bash
+curl -s \
+  "https://elidemo.visiumtechnologies.com/api/debug/webhook-requests?status=400&limit=20" \
+  -H "X-Debug-Token: $DEBUG_DASHBOARD_TOKEN" | jq .
+```
+</augment_code_snippet>
+
+Notes
+- MOCK_MODE=true still returns 200s and logs the request, but skips DB/Cloudinary/Neo4j writes.
+- In production, ensure DEBUG_DASHBOARD_ENABLED and DEBUG_DASHBOARD_TOKEN are set to access the dashboard safely.
