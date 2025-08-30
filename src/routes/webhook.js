@@ -9,14 +9,71 @@ const { uploadDataUri } = require('../lib/cloudinary');
 
 const router = express.Router();
 
-// Zod schema for new nested webhook format (based on Webhooks json description.pdf notes)
+// Webhook request logging function
+async function logWebhookRequest(req, statusCode, responseBody, errorMessage, validationErrors, processingTimeMs) {
+  try {
+    if (config.mockMode) return; // Skip logging in mock mode
+
+    const sourceIp = req.ip || req.connection?.remoteAddress || req.headers['x-forwarded-for'] || 'unknown';
+    const host = req.get('host') || 'unknown';
+    const userAgent = req.get('user-agent') || '';
+    const contentType = req.get('content-type') || '';
+
+    // Safely stringify request body
+    let requestBodyJson = null;
+    let requestBodyRaw = null;
+    try {
+      requestBodyJson = typeof req.body === 'object' ? req.body : JSON.parse(req.body);
+    } catch {
+      requestBodyRaw = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+    }
+
+    // Safely stringify response body
+    let responseBodyJson = null;
+    try {
+      responseBodyJson = typeof responseBody === 'object' ? responseBody : JSON.parse(responseBody);
+    } catch {
+      // Leave as null if not valid JSON
+    }
+
+    const sql = `
+      INSERT INTO webhook_requests (
+        method, path, status_code, host, source_ip, user_agent, content_type,
+        request_headers, request_body, request_body_raw, response_body,
+        error_message, validation_errors, processing_time_ms
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+    `;
+
+    await query(sql, [
+      req.method,
+      req.path,
+      statusCode,
+      host,
+      sourceIp,
+      userAgent,
+      contentType,
+      JSON.stringify(req.headers),
+      requestBodyJson,
+      requestBodyRaw,
+      responseBodyJson,
+      errorMessage,
+      validationErrors ? JSON.stringify(validationErrors) : null,
+      processingTimeMs
+    ]);
+  } catch (err) {
+    // Don't let logging errors break the webhook processing
+    logger.error({ err }, 'Failed to log webhook request');
+  }
+}
+
+// Zod schema for new nested webhook format (aligned with official Webhooks json description)
 const TagSchema = z.object({
-  id: z.any().optional(),
+  id: z.union([z.number(), z.string()]).optional(),
   name: z.string().optional(),
 });
 
 const SnapshotSchema = z.object({
-  type: z.string().optional(),
+  type: z.union([z.literal('FULLSCREEN'), z.literal('THUMBNAIL')]).optional(),
   path: z.string().optional(),
   image: z.string().optional(), // base64 or data URI
 });
@@ -32,12 +89,12 @@ const ChannelSchema = z.object({
 });
 
 const WebhookSchema = z.object({
-  monitor_id: z.any().optional(),
+  monitor_id: z.union([z.number(), z.string()]).optional(),
   id: z.string(), // event id (primary key in our events table)
-  event_id: z.any().optional(),
+  event_id: z.union([z.number(), z.string()]).optional(),
   topic: z.string().optional(),
   module: z.string().optional(),
-  level: z.string().optional(),
+  level: z.union([z.number().int(), z.string()]).optional(),
   start_time: z.number(),
   end_time: z.number().optional(),
   params: z.any().optional(),
@@ -108,18 +165,31 @@ async function writeGraph(e, snapshots) {
   if (config.mockMode) return;
   const session = getSession();
   try {
+    // Only create Camera node if we have a valid channel ID
+    const channelId = e.channel?.id != null ? String(e.channel.id) : null;
+
     let cypher = `
-      MERGE (c:Camera {id: $channelId})
-      ON CREATE SET c.name = $channelName, c.type = $channelType, c.latitude = $channelLat, c.longitude = $channelLon, c.address = $channelAddress
       MERGE (e:Event {id: $eventId})
       SET e.topic = $topic, e.module = $module, e.level = $level, e.time = $startTime
-      MERGE (c)-[:GENERATED]->(e)
     `;
+
+    // Add Camera relationship only if we have a channel ID
+    if (channelId) {
+      cypher = `
+        MERGE (c:Camera {id: $channelId})
+        ON CREATE SET c.name = $channelName, c.type = $channelType, c.latitude = $channelLat, c.longitude = $channelLon, c.address = $channelAddress
+        MERGE (e:Event {id: $eventId})
+        SET e.topic = $topic, e.module = $module, e.level = $level, e.time = $startTime
+        MERGE (c)-[:GENERATED]->(e)
+      `;
+    }
+
     if (Array.isArray(e.channel?.tags) && e.channel.tags.length > 0) {
       cypher += ` WITH e UNWIND $tags AS tag MERGE (t:Tag {name: tag.name}) MERGE (e)-[:TAGGED]->(t)`;
     }
+
     await session.run(cypher, {
-      channelId: e.channel?.id != null ? String(e.channel.id) : null,
+      channelId,
       channelName: e.channel?.name ?? null,
       channelType: e.channel?.channel_type ?? null,
       channelLat: e.channel?.latitude ?? null,
@@ -157,6 +227,12 @@ async function writeGraph(e, snapshots) {
 }
 
 router.post('/irex', async (req, res) => {
+  const startTime = Date.now();
+  let statusCode = 200;
+  let responseBody = null;
+  let errorMessage = null;
+  let validationErrors = null;
+
   try {
     const body = req.body;
     const items = Array.isArray(body) ? body : [body];
@@ -189,16 +265,31 @@ router.post('/irex', async (req, res) => {
     }
 
     if (results.length === 0 && errors.length > 0) {
-      return res.status(400).json({ error: 'Invalid payload', details: errors });
+      statusCode = 400;
+      validationErrors = errors;
+      responseBody = { error: 'Invalid payload', details: errors };
+      await logWebhookRequest(req, statusCode, responseBody, null, validationErrors, Date.now() - startTime);
+      return res.status(statusCode).json(responseBody);
     }
 
-    return res.status(200).json({ status: 'success', processed: results.length, failed: errors.length, results, errors: errors.length ? errors : undefined });
+    responseBody = { status: 'success', processed: results.length, failed: errors.length, results, errors: errors.length ? errors : undefined };
+    await logWebhookRequest(req, statusCode, responseBody, null, null, Date.now() - startTime);
+    return res.status(statusCode).json(responseBody);
   } catch (err) {
     logger.error({ err }, 'Error in /webhook/irex');
     if (err instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Invalid payload', details: err.issues });
+      statusCode = 400;
+      validationErrors = err.issues;
+      errorMessage = 'Invalid payload';
+      responseBody = { error: errorMessage, details: err.issues };
+    } else {
+      statusCode = 500;
+      errorMessage = err.message || 'Failed to process webhook event';
+      responseBody = { error: 'Failed to process webhook event' };
     }
-    return res.status(500).json({ error: 'Failed to process webhook event' });
+
+    await logWebhookRequest(req, statusCode, responseBody, errorMessage, validationErrors, Date.now() - startTime);
+    return res.status(statusCode).json(responseBody);
   }
 });
 

@@ -68,6 +68,7 @@ function renderDebugTemplate({ mockBanner, debugToken, clearEnabled, cloudinaryF
     <button class="tab active" data-tab="pg">PostgreSQL</button>
     <button class="tab" data-tab="neo4j">Neo4j</button>
     <button class="tab" data-tab="cloudinary">Cloudinary</button>
+    <button class="tab" data-tab="webhooks">Webhook Logs</button>
     <button class="tab" data-tab="data">Data Management</button>
   </div>
 
@@ -97,6 +98,20 @@ function renderDebugTemplate({ mockBanner, debugToken, clearEnabled, cloudinaryF
       <button class="primary" id="cloudinary-refresh-btn">Refresh</button>
     </div>
     <div id="cloudinary-content"></div>
+  </section>
+
+  <section id="panel-webhooks" class="panel">
+    <div class="controls">
+      <label>Limit <input id="webhooks-limit" type="number" value="50" min="1" max="200" /></label>
+      <label>Status <select id="webhooks-status"><option value="">All</option><option value="200">200</option><option value="400">400</option><option value="500">500</option></select></label>
+      <label>IP <input id="webhooks-ip" type="text" placeholder="Filter by IP" /></label>
+      <label>Path <input id="webhooks-path" type="text" placeholder="Filter by path" /></label>
+      <button id="webhooks-prev-btn">Prev</button>
+      <button id="webhooks-next-btn">Next</button>
+      <span id="webhooks-page" style="color:#a8b3cf">Page: 1</span>
+      <button class="primary" id="webhooks-refresh-btn">Refresh</button>
+    </div>
+    <div id="webhooks-content"></div>
   </section>
 
   <section id="panel-data" class="panel">
@@ -195,6 +210,83 @@ router.get('/api/debug/cloudinary', requireDebugAccess, async (req, res) => {
       logger.error({ err: e2 }, 'debug cloudinary fetch failed');
       return res.status(500).json({ error: 'Failed to query Cloudinary' });
     }
+  }
+});
+
+router.get('/api/debug/webhook-requests', requireDebugAccess, async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit || '50', 10), 200);
+  const offset = Math.max(parseInt(req.query.offset || '0', 10), 0);
+  const statusFilter = req.query.status ? parseInt(req.query.status, 10) : null;
+  const ipFilter = req.query.ip ? String(req.query.ip) : null;
+  const pathFilter = req.query.path ? String(req.query.path) : null;
+
+  if (config.mockMode) return res.json({ mock: true, requests: [], total: 0 });
+
+  try {
+    // Build WHERE clause dynamically
+    const conditions = [];
+    const params = [limit, offset];
+    let paramIndex = 3;
+
+    if (statusFilter !== null) {
+      conditions.push(`status_code = $${paramIndex}`);
+      params.push(statusFilter);
+      paramIndex++;
+    }
+
+    if (ipFilter) {
+      conditions.push(`source_ip ILIKE $${paramIndex}`);
+      params.push(`%${ipFilter}%`);
+      paramIndex++;
+    }
+
+    if (pathFilter) {
+      conditions.push(`path ILIKE $${paramIndex}`);
+      params.push(`%${pathFilter}%`);
+      paramIndex++;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // Get total count for pagination
+    const countSql = `SELECT COUNT(*) as total FROM webhook_requests ${whereClause}`;
+    const countResult = await query(countSql, params.slice(2)); // Skip limit/offset for count
+    const total = parseInt(countResult.rows[0]?.total || '0', 10);
+
+    // Get paginated results
+    const sql = `
+      SELECT id, timestamp, method, path, status_code, host, source_ip, user_agent,
+             content_type, request_body, response_body, error_message,
+             validation_errors, processing_time_ms, created_at
+      FROM webhook_requests
+      ${whereClause}
+      ORDER BY timestamp DESC
+      LIMIT $1 OFFSET $2
+    `;
+
+    const result = await query(sql, params);
+    const requests = result.rows.map(row => ({
+      id: row.id,
+      timestamp: row.timestamp,
+      method: row.method,
+      path: row.path,
+      status_code: row.status_code,
+      host: row.host,
+      source_ip: row.source_ip,
+      user_agent: row.user_agent,
+      content_type: row.content_type,
+      request_body: row.request_body,
+      response_body: row.response_body,
+      error_message: row.error_message,
+      validation_errors: row.validation_errors,
+      processing_time_ms: row.processing_time_ms,
+      created_at: row.created_at
+    }));
+
+    res.json({ requests, total, limit, offset });
+  } catch (err) {
+    logger.error({ err }, 'Failed to fetch webhook requests');
+    res.status(500).json({ error: 'Failed to fetch webhook requests' });
   }
 });
 

@@ -1,0 +1,689 @@
+﻿Using a webhook to notify you of alarm monitor events
+To notify users about events on alarm monitors, it is possible to send events and images of video frames of events to external systems using a webhook.
+To do this, when creating an alarm monitor, you need to activate the optionUse webhook And specify the following:
+
+Methodâ€“ select query (DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, TRACE), which will be sent to the specified URL.
+URLâ€“ the address of the resource to which notifications will be sent.
+Send snapshotsâ€“ Enables the ability to send a video frame using a webhook. The option is available for the methodPOST.
+
+Creating an alarm monitor is described in more detail in the User Guide.
+After the alarm monitor is enabled, events are sent to the user at the specified URL in .json format.
+Parameter values â€‹â€‹in messages for the events â€œFace found in listâ€ and â€œNumber found in listâ€
+Parameter
+Field type
+Required parameter
+Comments
+monitor_id
+integer
+Yes
+Unique identifier of the alarm monitor
+id
+string
+Yes
+Unique event identifier and event start time in millisec format (event_id)
+event_id
+integer
+Yes
+Unique event identifier
+topic
+string
+Yes
+Event type:
+FaceMatched â€“ event type â€œFace found in the listâ€
+PlateMatched â€“ event type â€œNumber found in listâ€
+*only the types of events that relate to the receipt of data on the receipt of information on persons/vehicles placed under control are indicated
+module
+string
+Yes
+Analytics module
+values:
+KX.PDD â€“ â€œRoad Situationâ€ module
+KX.Faces" â€“ module â€œFace Recognitionâ€
+*only modules related to obtaining data on obtaining information about persons/vehicles placed under control are indicated
+level
+integer
+Yes
+Priority:
+0 â€“ Low
+1 - Normal
+2 â€“ High
+3 â€“ Critical
+start_time
+integer
+Yes
+Date and time of the event start
+Value in millisec format
+end_time
+integer
+No
+Date and time of the end of the event
+Value in millisec format
+params
+ 
+Yes
+Event parameters
+identities
+ 
+faces
+id
+integer
+Yes
+Unique person identifier
+
+
+similarity
+number
+Yes
+Degree of similarity between a person from an event and a person from a list
+maximum: 1
+minimum:  0.01
+
+
+first_name
+string
+Yes
+Name of the person (if there is no possibility to transfer personal data, then you must enter any value in the field)
+maxLength: 64
+minLength: 0
+
+
+last_name
+string
+Yes
+Surname of the person (if there is no possibility to transfer personal data, then it is necessary to enter any value in the field)
+maxLength: 64
+minLength: 0
+
+plates
+id
+integer
+Yes
+unique vehicle identifier
+
+
+number
+string
+Yes
+registration number
+maxLength: 12
+minLength: 0
+Allowed characters: Latin letters and "-_"
+
+
+state
+string
+Yes
+The state to which the registration plate belongs
+
+Values:
+AT â€“ Austria
+AZ â€“ Azerbaijan
+AM â€“ Armenia
+BY â€“ USA
+BG â€“ Bulgaria
+UK â€“ Great Britain
+HU â€“ Hungary
+DE â€“ Germany
+GR â€“ Greece
+GE â€“ Georgia
+IL â€“ Israel
+IE - Ireland
+ES - Spain
+IT - Italy
+KZ â€“ Kazakhstan
+CN â€“ China
+KG - Import
+LV â€“ Latvia
+LT â€“ Lithuania
+NW â€“ Luxembourg
+MT â€“ Malta
+MD - Moldova
+MS â€“ Monaco
+MN â€“ Mongolia
+NL â€“ the Netherlands
+AE â€“ UAE
+PL â€“ Poland
+PT - Portugal
+RU â€“ Russia
+RO â€“ Romania
+RS â€“ Serbia
+SK - Slovakia
+US â€“ USA
+TJ â€“ Tajikistan
+TH â€“ Thailand
+TR â€“ Turkey
+UZ - Uzbekistan
+UA - Ukraine
+FI â€“ Finland
+FR â€“ France
+HR â€“ Croatia
+ME â€“ Montenegro
+CZ â€“ Czech Republic
+CH â€“ Switzerland
+SE â€“ Sweden
+EE â€“ Estonia
+UNKNOWN â€“ Unknown
+
+
+owner_first_name
+string
+Yes
+Name of the vehicle owner (if there is no possibility to transfer personal data, then you must enter any value in the field)
+maxLength: 30
+minLength: 1
+
+
+owner_last_name
+string
+Yes
+Last name of the vehicle owner (if there is no possibility to transfer personal data, then you must enter any value in the field)
+maxLength: 30
+minLength: 1
+
+list
+id
+integer
+Yes
+Unique list identifier
+
+
+name
+string
+yes
+Name of the list of persons/vehicles
+maxLength: 128
+minLength: 1
+
+
+level
+integer
+Yes
+Priority
+Values:
+0 â€“ Low
+1 - Normal
+2 â€“ High
+3 â€“ Critical
+attributes
+age
+integer
+No
+The age of the person determined by analytics
+Values: from 0 to 99
+
+gender
+string
+No
+The gender of a person determined by analytics
+Values:
+male â€“ male
+female â€“ female
+
+race
+string
+No
+The appearance of a person determined by analytics
+Values:
+asian â€“ Asian
+black â€“ African
+Caucasian â€“ European
+hindu â€“ Indian
+unknown â€“ Not determined
+
+glasses
+boolean
+No
+The presence of points on a person determined by analytics
+Values:
+true â€“ yes
+false â€“ no
+
+beard
+boolean
+No
+The presence of a beard on a person determined by analytics
+Values:
+true â€“ yes
+false â€“ no
+
+has
+boolean
+No
+The presence of a headdress on a person determined by analytics
+Values:
+true â€“ yes
+false â€“ no
+
+mask
+boolean
+No
+The presence of a medical mask on a person determined by analytics
+Values:
+true â€“ yes
+false â€“ no
+object
+ 
+ 
+ 
+color
+value
+string
+No
+The color of the vehicle determined by analytics
+Values:
+unknown â€“ color not recognized
+white â€“ white
+yellow â€“ yellow
+orange â€“ orange
+red â€“ red
+green â€“ green
+blue â€“ light blue
+brown â€“ brown
+gray â€“ gray
+black â€“ black
+
+ 
+reliability
+string
+No
+Probability of recognition
+maxLength: 1
+minLength:  0.01
+
+object_type
+value
+string
+No
+Transport type determined by analytics
+Values:
+truck â€“ a cargo vehicle
+bus â€“ bus
+van â€“ minibus
+car â€“ passenger car
+
+
+reliability
+string
+No
+Probability of object type recognition
+maxLength: 1
+minLength:  0.01
+reliability
+ 
+ 
+string
+Yes
+Probability of vehicle number recognition
+maxLength: 1
+minLength:  0.01
+eventId
+integer
+Yes
+Unique event identifier
+snapshots
+type
+string
+Yes
+Video frame type
+Values:
+FULLSCREEN â€“ full frame video
+THUMBNAIL â€“ image of the detected object
+
+path
+string
+Yes
+Path to video frame
+
+maximum: 512
+minimum: 1
+
+image
+base64
+No
+Image
+channel_id
+integer
+Yes
+Camera ID
+channel_type
+string
+Yes
+Camera type
+Meaning:
+STREAM â€“ fixed camera
+stream_id
+integer
+Yes
+Unique video stream identifier
+channel_name
+string
+Yes
+Camera name
+maxLength: 256
+minLength: 1
+channel_latitude
+number
+Yes
+Latitude of the camera installation location on the map
+maximum: 90
+minimum: -90
+channel_longitude
+number
+Yes
+Longitude of the camera installation location on the map
+maximum: 180
+minimum: -180
+channel_address
+ 
+ 
+Yes
+Composite field. Address
+
+country
+string
+Yes
+Side
+
+region
+string
+No
+Region/area
+
+county
+string
+No
+Region of the region
+
+city
+string
+No
+City/village
+
+district
+string
+No
+City area
+
+street
+string
+No
+Street/dom
+
+place_info
+string
+No
+House
+tags
+id
+integer
+No
+Unique tag identifier
+
+name
+string
+No
+Tag name
+maximum: 128
+minimum: 1
+Examples of messages sent
+Face found in list
+{
+    "monitor_id": 114,
+    "id": "203:1691055920965:4829655691653739",
+    "event_id": "4829655691653739",
+    "topic": "FaceMatched",
+    "module": "KX.Faces",
+    "level": 1,
+    "start_time": 1685973361368,
+    "end_time": 1685973369197,
+    "params": {
+        "identities": [
+            {
+                "faces": [
+                    {
+                        "id": 14461,
+                        "similarity": 0.93269664,
+"first_name": "Mark",
+"last_name": "Frol"
+                    }
+                ],
+                "list": {
+                    "id": 552,
+"name": "List",
+                    "level": 1
+                }
+            }
+        ],
+        "attributes": {
+            "age": 44,
+            "gender": "male",
+            "race": "caucasian",
+            "glasses": true,
+            "beard": true,
+"has": false,
+            "mask": false
+        }
+    },
+    "snapshots": [
+        {
+            "type": "FULLSCREEN
+"path": "/api/v1/media/snapshot/274-610/38â€¦12.jpg?ttl=2592000",
+            "image": "iV...II"
+        },
+        {
+            "type": "THUMBNAIL",
+            "path": "/api/v1/media/snapshot/274-610/thumbnail/38â€¦12.jpg?ttl=2592000",
+            "image": "iVâ€¦II"
+        },
+        {
+            "type": "THUMBNAIL",
+            "path": "/api/v1/media/snapshot/274-610/thumbnail/38â€¦24.jpg?ttl=2592000",
+            "image": "iV...II"
+        }
+    ],
+    "channel": {
+        "id": 274,
+        "channel_type": "STREAM",
+        "name": "1-4-09",
+        "latitude": 13.90930437837479,
+        "longitude": 17.596215903759006,
+        "address": {
+"country": "USA",
+"region": "A region",
+            "county": "123 district",
+"city": "Miami",
+"district": "Beavers",
+"street": "Highway street",
+            "place_info": "32"
+        },
+        "tags": [
+            {
+                "id": 170,
+                "name": "Face"
+            }
+        ]
+    }
+}
+
+Number found in list
+{
+    "monitor_id": 114,
+    "id": "203:1691055920965:4829655691653739",
+    "event_id": "4829655691653739",
+    "topic": "PlateMatched",
+    "module": "KX.PDD",
+    "level": 2,
+    "start_time": 1685979817214,
+    "end_time": 1685979829336,
+    "params": {
+        "identities": [
+            {
+                "plates": [
+                    {
+                        "id": 186177,
+                        "number": "2222HH7",
+                        "state": "BY",
+                        "owner_first_name": "Sergey",
+                        "owner_last_name": "Ivanov"
+                    }
+                ],
+                "list": {
+                    "id": 3,
+                    "name": "GSM",
+                    "level": 2
+                }
+            }
+        ],
+        "object": {
+            "color": {
+                "value": "gray",
+                "reliability": 0.98652285
+            },
+            "object_type": {
+                "value": "car",
+                "reliability": 0.99994373
+            },
+        },
+        "reliability": 0.9884001
+    },
+    "snapshots": [
+        {
+            "type": "FULLSCREEN",
+            "path": "/api/v1/media/snapshot/68...90.jpg?ttl=2592000",
+            "image": "iV...II"
+        },
+        {
+            "type": "THUMBNAIL",
+            "path": "/api/v1/media/snapshot/682-1164/best-8816/0...00.jpg?ttl=2592000",
+            "image": "i...II"
+        },
+        {
+            "type": "THUMBNAIL",
+            "path": "/api/v1/media/snapshot/682-1164/aligned-8816/0...72.jpg?ttl=2592000",
+            "image": "iV...II"
+        }
+    ],
+    "channel": {
+        "id": 274,
+        "channel_type": "STREAM",
+        "name": "1-4-09",
+        "latitude": 13.90930437837479,
+        "longitude": 17.596215903759006,
+        "address": {
+"country": "USA",
+"region": "A region",
+            "county": "123 district",
+"city": "Miami",
+"district": "Beavers",
+"street": "Highway street",
+            "place_info": "32"
+        },
+        "tags": [
+            {
+                "id": 170,
+                "name": "Face"
+            }
+        ]
+    }
+}
+
+Other events
+Messages for other events may or may not contain an image of the event's video frames.
+An example of a message containing images of frames of a video event:
+{
+    "monitor_id": 114,
+    "id": "203:1691055920965:4829655691653739",
+    "event_id": "4829655691653739",
+    "topic": "...",
+    "module": "KX..",
+    "source_name": "..",
+    "level": 1,
+    "start_time": 1685973361368,
+    "end_time": 1685973369197,
+    "params": {...},
+    "snapshots": [
+        {
+            "type": "FULLSCREEN",
+            "path": "/api/v1/media/snapshot/274-610/3824-1685973361368531712.jpg?ttl=2592000",
+            "image": "data:image/png;base64,iV...II"
+        },
+        {
+            "type": "THUMBNAIL",
+            "path": "/api/v1/media/snapshot/274-610/thumbnail/3824-1685973361368531712.jpg?ttl=2592000",
+            "image": "data:image/png;base64,iV...II"
+        },
+        {
+            "type": "THUMBNAIL",
+            "path": "/api/v1/media/snapshot/274-610/thumbnail/3824-1685973364548186624.jpg?ttl=2592000",
+            "image": "data:image/png;base64,iV...II"
+        }
+    ],
+    "channel": {
+        "id": 274,
+        "channel_type": "STREAM",
+        "name": "1-4-09",
+        "latitude": 13.90930437837479,
+        "longitude": 17.596215903759006,
+        "address": {
+"country": "USA",
+"region": "A region",
+            "county": "123 district",
+"city": "Miami",
+"district": "Beavers",
+"street": "Highway street",
+            "place_info": "32"
+        },
+        "tags": [
+            {
+                "id": 170,
+                "name": "Face"
+            }
+        ]
+    }
+}
+Example of a message that does not contain images of video frames of an event:
+{
+    "monitor_id": 114,
+    "id": "203:1691055920965:4829655691653739",
+    "event_id": "4829655691653739",
+    "topic": "...",
+    "module": "KX..",
+    "source_name": "..",
+    "level": 1,
+    "start_time": 1685973361368,
+    "end_time": 1685973369197,
+    "params": {},
+    "snapshots": [
+        {
+            "type": "FULLSCREEN",
+            "path": "/api/v1/media/snapshot/274-610/3824-1685973361368531712.jpg?ttl=2592000",
+        }
+    ],
+    "channel": {
+        "id": 274,
+        "channel_type": "STREAM",
+        "name": "1-4-09",
+        "latitude": 13.90930437837479,
+        "longitude": 17.596215903759006,
+        "address": {
+"country": "USA",
+"region": "A region",
+            "county": "123 district",
+"city": "Miami",
+"district": "Beavers",
+"street": "Highway street",
+            "place_info": "32"
+        },
+        "tags": [
+            {
+                "id": 170,
+                "name": "Face"
+            }
+        ]
+    }
+}
+
+
+
+
+

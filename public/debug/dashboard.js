@@ -12,6 +12,7 @@
 
   // State variables
   let pgOffset = 0;
+  let webhooksOffset = 0;
   let clearModalEl = null;
 
   // Initialize the dashboard
@@ -24,6 +25,7 @@
     loadPg();
     loadNeo4j();
     loadCloudinary();
+    loadWebhooks();
   }
 
   // Tab switching functionality
@@ -64,6 +66,15 @@
     // Cloudinary controls
     const cloudinaryRefreshBtn = document.getElementById('cloudinary-refresh-btn');
     if (cloudinaryRefreshBtn) cloudinaryRefreshBtn.addEventListener('click', loadCloudinary);
+
+    // Webhook controls
+    const webhooksPrevBtn = document.getElementById('webhooks-prev-btn');
+    const webhooksNextBtn = document.getElementById('webhooks-next-btn');
+    const webhooksRefreshBtn = document.getElementById('webhooks-refresh-btn');
+
+    if (webhooksPrevBtn) webhooksPrevBtn.addEventListener('click', webhooksPrev);
+    if (webhooksNextBtn) webhooksNextBtn.addEventListener('click', webhooksNext);
+    if (webhooksRefreshBtn) webhooksRefreshBtn.addEventListener('click', () => loadWebhooks(true));
 
     // Data management controls
     const clearDataBtn = document.getElementById('clear-data-btn');
@@ -372,12 +383,115 @@
     init();
   }
 
+  // Webhook logs functionality
+  async function loadWebhooks(reset = false) {
+    if (reset) webhooksOffset = 0;
+
+    const el = document.getElementById('webhooks-content');
+    if (!el) return;
+
+    const limit = parseInt(document.getElementById('webhooks-limit')?.value || 50, 10);
+    const status = document.getElementById('webhooks-status')?.value || '';
+    const ip = document.getElementById('webhooks-ip')?.value || '';
+    const path = document.getElementById('webhooks-path')?.value || '';
+
+    try {
+      let url = `/api/debug/webhook-requests?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(webhooksOffset)}`;
+      if (status) url += `&status=${encodeURIComponent(status)}`;
+      if (ip) url += `&ip=${encodeURIComponent(ip)}`;
+      if (path) url += `&path=${encodeURIComponent(path)}`;
+
+      const r = await fetch(url, { headers });
+      const j = await r.json();
+
+      if (j.mock) {
+        el.innerHTML = '<div class="error">Mock mode enabled — showing no live data.</div>';
+        return;
+      }
+
+      const requests = j.requests.map(function(req) {
+        return {
+          id: req.id,
+          timestamp: fmtUTC(req.timestamp),
+          method: req.method,
+          path: req.path,
+          status_code: req.status_code,
+          source_ip: req.source_ip,
+          processing_time_ms: req.processing_time_ms,
+          error_message: req.error_message || '',
+          request_body: req.request_body ? JSON.stringify(req.request_body, null, 2) : '',
+          response_body: req.response_body ? JSON.stringify(req.response_body, null, 2) : ''
+        };
+      });
+
+      el.innerHTML = '<div style="padding:12px">' +
+        '<h3 style="margin:0 0 8px 0">Webhook Requests (Total: ' + j.total + ')</h3>' +
+        renderWebhookTable(requests) +
+        '</div>';
+
+      const page = Math.floor(webhooksOffset / limit) + 1;
+      document.getElementById('webhooks-page').textContent = 'Page: ' + page;
+    } catch (e) {
+      el.innerHTML = '<div class="error">' + (e && e.message || 'Failed to load') + '</div>';
+    }
+  }
+
+  function renderWebhookTable(requests) {
+    if (!requests.length) return '<p style="color:#a8b3cf">No webhook requests found.</p>';
+
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    html += '<thead><tr style="background:#2a2a2a">';
+    html += '<th style="padding:8px;border:1px solid #444;text-align:left">Time</th>';
+    html += '<th style="padding:8px;border:1px solid #444;text-align:left">Method</th>';
+    html += '<th style="padding:8px;border:1px solid #444;text-align:left">Path</th>';
+    html += '<th style="padding:8px;border:1px solid #444;text-align:left">Status</th>';
+    html += '<th style="padding:8px;border:1px solid #444;text-align:left">Source IP</th>';
+    html += '<th style="padding:8px;border:1px solid #444;text-align:left">Time (ms)</th>';
+    html += '<th style="padding:8px;border:1px solid #444;text-align:left">Error</th>';
+    html += '<th style="padding:8px;border:1px solid #444;text-align:left">Request</th>';
+    html += '<th style="padding:8px;border:1px solid #444;text-align:left">Response</th>';
+    html += '</tr></thead><tbody>';
+
+    requests.forEach(function(req) {
+      const statusColor = req.status_code >= 400 ? '#ff6b6b' : req.status_code >= 300 ? '#ffd93d' : '#51cf66';
+      html += '<tr>';
+      html += '<td style="padding:4px;border:1px solid #444;font-size:11px">' + escapeHtml(req.timestamp) + '</td>';
+      html += '<td style="padding:4px;border:1px solid #444">' + escapeHtml(req.method) + '</td>';
+      html += '<td style="padding:4px;border:1px solid #444">' + escapeHtml(req.path) + '</td>';
+      html += '<td style="padding:4px;border:1px solid #444;color:' + statusColor + '">' + req.status_code + '</td>';
+      html += '<td style="padding:4px;border:1px solid #444;font-size:11px">' + escapeHtml(req.source_ip) + '</td>';
+      html += '<td style="padding:4px;border:1px solid #444">' + (req.processing_time_ms || 'N/A') + '</td>';
+      html += '<td style="padding:4px;border:1px solid #444;color:#ff6b6b;font-size:11px">' + escapeHtml(req.error_message) + '</td>';
+      html += '<td style="padding:4px;border:1px solid #444;max-width:200px;overflow:hidden"><pre style="margin:0;font-size:10px;white-space:pre-wrap">' + escapeHtml(req.request_body.substring(0, 200)) + (req.request_body.length > 200 ? '...' : '') + '</pre></td>';
+      html += '<td style="padding:4px;border:1px solid #444;max-width:200px;overflow:hidden"><pre style="margin:0;font-size:10px;white-space:pre-wrap">' + escapeHtml(req.response_body.substring(0, 200)) + (req.response_body.length > 200 ? '...' : '') + '</pre></td>';
+      html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    return html;
+  }
+
+  function webhooksNext() {
+    const limit = parseInt(document.getElementById('webhooks-limit')?.value || 50, 10);
+    webhooksOffset += limit;
+    loadWebhooks();
+  }
+
+  function webhooksPrev() {
+    const limit = parseInt(document.getElementById('webhooks-limit')?.value || 50, 10);
+    webhooksOffset = Math.max(0, webhooksOffset - limit);
+    loadWebhooks();
+  }
+
   // Export functions to global scope for compatibility
   window.loadPg = loadPg;
   window.pgNext = pgNext;
   window.pgPrev = pgPrev;
   window.loadNeo4j = loadNeo4j;
   window.loadCloudinary = loadCloudinary;
+  window.loadWebhooks = loadWebhooks;
+  window.webhooksNext = webhooksNext;
+  window.webhooksPrev = webhooksPrev;
   window.openClearModal = openClearModal;
   window.closeClearModal = closeClearModal;
   window.confirmClearAll = confirmClearAll;
