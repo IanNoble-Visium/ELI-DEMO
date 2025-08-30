@@ -12,6 +12,7 @@
     "test:watch": "jest --watch",
     "test:all": "node scripts/test-runner.js",
     "smoke": "node scripts/smoke.js",
+    "smoke:prod": "node scripts/smoke.js --base https://elidemo.visiumtechnologies.com",
     "test:prod": "node scripts/test-production.js"
   },
   "dependencies": {

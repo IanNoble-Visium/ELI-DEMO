@@ -134,10 +134,22 @@ async function writeGraph(e, snapshots) {
     });
 
     for (const s of snapshots) {
-      await session.run(
-        `MATCH (e:Event {id: $eventId}) MERGE (i:Image {url: $url}) SET i.type=$type, i.path=$path MERGE (e)-[:HAS_SNAPSHOT]->(i)`,
-        { eventId: e.id, url: s.image_url ?? null, type: s.type ?? null, path: s.path ?? null }
-      );
+      const url = s.image_url ?? null;
+      const path = s.path ?? null;
+      if (url) {
+        await session.run(
+          `MATCH (e:Event {id: $eventId}) MERGE (i:Image {url: $url}) SET i.type=$type, i.path=$path MERGE (e)-[:HAS_SNAPSHOT]->(i)`,
+          { eventId: e.id, url, type: s.type ?? null, path }
+        );
+      } else if (path) {
+        await session.run(
+          `MATCH (e:Event {id: $eventId}) MERGE (i:Image {path: $path}) SET i.type=$type MERGE (e)-[:HAS_SNAPSHOT]->(i)`,
+          { eventId: e.id, path, type: s.type ?? null }
+        );
+      } else {
+        // Nothing to identify the image node; skip to avoid null property errors in Neo4j
+        continue;
+      }
     }
   } finally {
     await session.close();
