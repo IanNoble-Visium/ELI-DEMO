@@ -283,3 +283,6 @@ Notes
 ### Environment flags
 - `MOCK_MODE=true` disables writes to Postgres/Neo4j/Cloudinary but still returns 200s. Useful for demos or quick health checks.
 - `MOCK_MODE=false` (production) performs real writes and is recommended for end-to-end testing.
+
+
+- `DEBUG_CLEAR_RATE_LIMIT_MS` (default: 1000) controls a small in-memory rate limit for POST /api/debug/clear-all to prevent accidental rapid repeated clears. Set to 0 to disable rate limiting in the debug environment.

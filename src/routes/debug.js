@@ -292,8 +292,9 @@ router.get('/api/debug/webhook-requests', requireDebugAccess, async (req, res) =
 
 // POST /api/debug/clear-all
 // Safely clears data from Postgres, Neo4j, and Cloudinary. Respects mock mode.
-// Includes optional dry_run and simple in-memory rate limiting.
+// Includes optional dry_run and configurable in-memory rate limiting to protect misuse.
 const rateLimit = { last: 0 };
+const CLEAR_RATE_LIMIT_MS = Math.max(parseInt(process.env.DEBUG_CLEAR_RATE_LIMIT_MS || '1000', 10) || 0, 0);
 router.post('/api/debug/clear-all', requireDebugAccess, async (req, res) => {
   // Only enable when explicitly allowed
   const enabled = process.env.DEBUG_DASHBOARD_ENABLED === 'true' || config.env !== 'production';
@@ -301,8 +302,9 @@ router.post('/api/debug/clear-all', requireDebugAccess, async (req, res) => {
 
   const dryRun = String(req.query.dry_run || 'false') === 'true';
   const now = Date.now();
-  // basic rate limiting: allow at most once per 10 seconds
-  if (now - rateLimit.last < 10_000) {
+  if (CLEAR_RATE_LIMIT_MS > 0 && now - rateLimit.last < CLEAR_RATE_LIMIT_MS) {
+    const retryAfter = Math.ceil((CLEAR_RATE_LIMIT_MS - (now - rateLimit.last)) / 1000);
+    res.set('Retry-After', String(Math.max(retryAfter, 1)));
     return res.status(429).json({ error: 'Too Many Requests. Try again shortly.' });
   }
   rateLimit.last = now;
