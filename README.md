@@ -170,69 +170,116 @@ POST /webhook/irex      → Status 200 JSON: { status: 'success', processed: 1, 
   - DATABASE_URL, NEO4J_URI/USERNAME/PASSWORD[/DATABASE], CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET[/FOLDER]
   - Optional: DEBUG_DASHBOARD_ENABLED, DEBUG_DASHBOARD_TOKEN, MOCK_MODE
 
-### Recent fix: /webhook/irex 500 error resolved (Aug 30, 2025)
-- Symptom: Production returned `500 { error: "Failed to process webhook event" }` even though writes appeared in Postgres/Neo4j/Cloudinary.
-- Root cause: For snapshots without an uploaded image, Neo4j merge used `MERGE (i:Image {url: $url})` where `$url` was null. Neo4j cannot merge using a null property value, so the request failed late.
-- Fix (src/routes/webhook.js):
-  - If `image_url` is present → `MERGE (i:Image {url: $url})`
-  - Else if only `path` is present → `MERGE (i:Image {path: $path})`
-  - Else → skip creating the Image node
-- Impact: Mixed snapshots (some with images, some without) are now processed successfully; the endpoint returns 200 with a result summary.
+### Neo4j Database Schema
+This API maps incoming webhook payloads to a property graph for analytics. Below is the current schema and mappings, aligned to “Face found in list” (FaceMatched) and “Number found in list” (PlateMatched) examples.
+
+#### Node Types and Properties
+- Event
+  - id (string, PK)
+  - topic, module, level
+  - start_time, end_time
+  - monitor_id, event_id_ext
+  - Person attributes (if present): person_age, person_gender, person_race, person_glasses, person_beard, person_hat, person_mask
+  - Vehicle analytics (if present): vehicle_color_value, vehicle_color_reliability, vehicle_type_value, vehicle_type_reliability, vehicle_reliability
+- Camera
+  - id (string)
+  - name, type
+  - latitude, longitude
+  - address_json (raw JSON)
+  - country, region, county, city, district, street, place_info (flattened from channel.address)
+- FaceIdentity
+  - id (string)
+  - similarity, first_name, last_name
+- PlateIdentity
+  - id (string)
+  - number, state, owner_first_name, owner_last_name
+- Watchlist
+  - id (string)
+  - name, level
+- Tag
+  - name (string)
+  - tag_id (optional source id)
+- Image
+  - url (string) or path (string)
+  - type (FULLSCREEN|THUMBNAIL)
+
+#### Relationship Types
+- (Camera)-[:GENERATED]->(Event)
+- (Event)-[:HAS_SNAPSHOT]->(Image)
+- (Event)-[:TAGGED]->(Tag)
+- (Event)-[:MATCHED_FACE]->(FaceIdentity)
+- (Event)-[:MATCHED_PLATE]->(PlateIdentity)
+- (FaceIdentity)-[:IN_LIST]->(Watchlist)
+- (PlateIdentity)-[:IN_LIST]->(Watchlist)
+- (Event)-[:IN_LIST]->(Watchlist)  // helpful for direct filtering by list
+
+#### Mapping from POST payload to graph
+Refer to the official examples. Highlights:
+- Core event: monitor_id → Event.monitor_id; id → Event.id; event_id → Event.event_id_ext; topic/module/level/start_time/end_time → Event.*
+- Channel: channel.id/name/channel_type/lat/lon → Camera.*; channel.address → Camera.address_json plus flattened country/region/county/city/district/street/place_info
+- Tags: channel.tags[].name → Tag.name; optional tags[].id → Tag.tag_id; link via Event-[:TAGGED]->Tag
+- Person attributes (FaceMatched): params.attributes.{age,gender,race,glasses,beard,has,mask} → Event.person_*
+- Vehicle analytics (PlateMatched): params.object.color.{value,reliability} and params.object.object_type.{value,reliability} and params.reliability → Event.vehicle_*
+- Identities:
+  - Face identities: params.identities[].faces[] → FaceIdentity nodes with properties id, similarity, first_name, last_name; linked via Event-[:MATCHED_FACE]->FaceIdentity. If identities[].list exists, it’s MERGEd into Watchlist and linked.
+  - Plate identities: params.identities[].plates[] → PlateIdentity nodes with properties id, number, state, owner_first_name, owner_last_name; linked via Event-[:MATCHED_PLATE]->PlateIdentity and Watchlist if present.
+- Snapshots: snapshots[].image (uploaded to Cloudinary) → Image.url; snapshots[].path → Image.path; linked via Event-[:HAS_SNAPSHOT]->Image.
+
+#### Sample Queries
+1) Recent critical face matches with demographics
+```cypher
+MATCH (e:Event)-[:MATCHED_FACE]->(f:FaceIdentity)
+WHERE e.level IN [2,3]
+RETURN e.id, e.start_time, f.first_name, f.last_name, f.similarity, e.person_age, e.person_gender
+ORDER BY e.start_time DESC LIMIT 50;
+```
+2) Vehicles of a specific color near a region
+```cypher
+MATCH (c:Camera)-[:GENERATED]->(e:Event)
+WHERE c.country = 'USA' AND e.vehicle_color_value = 'gray'
+RETURN e.id, e.start_time, c.name, e.vehicle_type_value, e.vehicle_reliability
+ORDER BY e.start_time DESC LIMIT 100;
+```
+3) List hits by list name and type
+```cypher
+MATCH (e:Event)-[:IN_LIST]->(l:Watchlist)
+OPTIONAL MATCH (e)-[:MATCHED_FACE]->(fi:FaceIdentity)
+OPTIONAL MATCH (e)-[:MATCHED_PLATE]->(pi:PlateIdentity)
+WHERE l.name = 'GSM'
+RETURN l.name, count(DISTINCT e) AS events, count(fi) AS face_hits, count(pi) AS plate_hits;
+```
+4) Channel heatmap: events per camera and tag
+```cypher
+MATCH (c:Camera)-[:GENERATED]->(e:Event)
+OPTIONAL MATCH (e)-[:TAGGED]->(t:Tag)
+RETURN c.id, c.name, collect(DISTINCT t.name) AS tags, count(e) AS events
+ORDER BY events DESC;
+```
+5) Snapshot coverage for recent events
+```cypher
+MATCH (e:Event)-[:HAS_SNAPSHOT]->(i:Image)
+WHERE e.start_time > timestamp() - 86400000
+RETURN e.id, count(i) AS snapshots, collect(DISTINCT i.type) AS types
+ORDER BY snapshots DESC LIMIT 100;
+```
+
+#### Dashboard Guidelines
+- Time-series panels on Event.start_time filtered by topic/module/level.
+- Cards for Face/Plate match counts with breakdown by Watchlist.level.
+- Geo-map using Camera.latitude/longitude with aggregations by Tag and by vehicle_type_value / person_gender.
+- Tables for identity details (FaceIdentity/PlateIdentity) with quick filters by similarity/state.
+- Snapshot thumbnails: use Image.url where present; fall back to Image.path.
+
+Notes
+- MOCK_MODE=true still returns 200s and logs the request, but skips DB/Cloudinary/Neo4j writes.
+- In production, ensure DEBUG_DASHBOARD_ENABLED and DEBUG_DASHBOARD_TOKEN are set to access the dashboard safely.
 
 ### Troubleshooting tips specific to /webhook/irex
 - If you see a 500 but data seems partially written:
-  - Confirm you are running a build that includes the fix above (Aug 30, 2025 or later).
-  - Inspect Vercel logs for Neo4j errors mentioning "merge" and "null property value".
+  - Confirm you are running a build that includes the snapshot null-merge fix (Aug 30, 2025 or later).
+  - Inspect logs for Neo4j errors mentioning "merge" and "null property value".
 - Large payloads/images: keep total request body small (serverless function limits). The service accepts raw base64 or data URIs; prefer small thumbnails for tests.
 
 ### Environment flags
 - `MOCK_MODE=true` disables writes to Postgres/Neo4j/Cloudinary but still returns 200s. Useful for demos or quick health checks.
 - `MOCK_MODE=false` (production) performs real writes and is recommended for end-to-end testing.
-
-
-### Webhook Request Logging and Debugging (NEW)
-- New table: webhook_requests (added via migrations/002_webhook_requests.sql). Run `npm run migrate` after pulling changes.
-- Every POST /webhook/irex request is logged, including 200/400/500 outcomes.
-- Captured fields: time, method, path, status_code, host, source_ip, user_agent, content_type, headers (json), request_body (json/raw), response_body (json), error_message, validation_errors (from Zod), processing_time_ms.
-
-#### Debug Dashboard: Webhook Logs tab
-- Visit /debug (with token if configured) and switch to the "Webhook Logs" tab
-- Filters: Status (200/400/500), IP, Path, Limit; with Prev/Next pagination
-- Tables show: Time, Method, Path, Status, Source IP, Time (ms), Error, and JSON snippets of Request/Response
-- Backend API: GET /api/debug/webhook-requests?limit=50&offset=0&status=400&ip=1.2.3.4&path=/webhook/irex
-
-#### Quick verification
-- Minimal payload is accepted (200):
-  - POST /webhook/irex with: { "id": "evt_min", "start_time": 1725024000000 }
-- Payload with channel omitted does not crash Neo4j writer (Event node persists; Camera link is skipped if channel.id missing)
-- 400s are logged with validation issues in webhook_requests and visible in the Webhook Logs tab
-
-### Webhook validation schema updates (Aug 30, 2025)
-- monitor_id, event_id: number or string
-- level: number (0–3) or string; stored as-is
-- snapshots[].type: FULLSCREEN | THUMBNAIL (optional)
-- channel: optional; if absent or id is null, graph write skips Camera MERGE safely
-- Purpose: be permissive for demo and maximize acceptance of real IREX payloads; stricter conformance can be added later
-
-#### Minimal example (200 OK)
-<augment_code_snippet path="README.md" mode="EXCERPT">
-```json
-{
-  "id": "evt_min_001",
-  "start_time": 1725024000000
-}
-```
-</augment_code_snippet>
-
-#### Fetch logged 400s via API
-<augment_code_snippet path="README.md" mode="EXCERPT">
-```bash
-curl -s \
-  "https://elidemo.visiumtechnologies.com/api/debug/webhook-requests?status=400&limit=20" \
-  -H "X-Debug-Token: $DEBUG_DASHBOARD_TOKEN" | jq .
-```
-</augment_code_snippet>
-
-Notes
-- MOCK_MODE=true still returns 200s and logs the request, but skips DB/Cloudinary/Neo4j writes.
-- In production, ensure DEBUG_DASHBOARD_ENABLED and DEBUG_DASHBOARD_TOKEN are set to access the dashboard safely.

@@ -167,25 +167,73 @@ async function writeGraph(e, snapshots) {
   try {
     // Only create Camera node if we have a valid channel ID
     const channelId = e.channel?.id != null ? String(e.channel.id) : null;
+    const addr = e.channel?.address || {};
 
+    // Base Event + optional Camera + Tags
     let cypher = `
       MERGE (e:Event {id: $eventId})
-      SET e.topic = $topic, e.module = $module, e.level = $level, e.time = $startTime
+      SET e.topic = $topic,
+          e.module = $module,
+          e.level = $level,
+          e.start_time = $startTime,
+          e.end_time = $endTime,
+          e.monitor_id = $monitorId,
+          e.event_id_ext = $eventIdExt,
+          e.person_age = $personAge,
+          e.person_gender = $personGender,
+          e.person_race = $personRace,
+          e.person_glasses = $personGlasses,
+          e.person_beard = $personBeard,
+          e.person_hat = $personHat,
+          e.person_mask = $personMask,
+          e.vehicle_color_value = $vehicleColorValue,
+          e.vehicle_color_reliability = $vehicleColorReliability,
+          e.vehicle_type_value = $vehicleTypeValue,
+          e.vehicle_type_reliability = $vehicleTypeReliability,
+          e.vehicle_reliability = $vehicleReliability
     `;
 
-    // Add Camera relationship only if we have a channel ID
     if (channelId) {
       cypher = `
         MERGE (c:Camera {id: $channelId})
-        ON CREATE SET c.name = $channelName, c.type = $channelType, c.latitude = $channelLat, c.longitude = $channelLon, c.address = $channelAddress
+        SET c.name = $channelName,
+            c.type = $channelType,
+            c.latitude = $channelLat,
+            c.longitude = $channelLon,
+            c.address_json = $channelAddress,
+            c.country = $addressCountry,
+            c.region = $addressRegion,
+            c.county = $addressCounty,
+            c.city = $addressCity,
+            c.district = $addressDistrict,
+            c.street = $addressStreet,
+            c.place_info = $addressPlaceInfo
         MERGE (e:Event {id: $eventId})
-        SET e.topic = $topic, e.module = $module, e.level = $level, e.time = $startTime
+        SET e.topic = $topic,
+            e.module = $module,
+            e.level = $level,
+            e.start_time = $startTime,
+            e.end_time = $endTime,
+            e.monitor_id = $monitorId,
+            e.event_id_ext = $eventIdExt,
+            e.person_age = $personAge,
+            e.person_gender = $personGender,
+            e.person_race = $personRace,
+            e.person_glasses = $personGlasses,
+            e.person_beard = $personBeard,
+            e.person_hat = $personHat,
+            e.person_mask = $personMask,
+            e.vehicle_color_value = $vehicleColorValue,
+            e.vehicle_color_reliability = $vehicleColorReliability,
+            e.vehicle_type_value = $vehicleTypeValue,
+            e.vehicle_type_reliability = $vehicleTypeReliability,
+            e.vehicle_reliability = $vehicleReliability
         MERGE (c)-[:GENERATED]->(e)
       `;
     }
 
     if (Array.isArray(e.channel?.tags) && e.channel.tags.length > 0) {
-      cypher += ` WITH e UNWIND $tags AS tag MERGE (t:Tag {name: tag.name}) MERGE (e)-[:TAGGED]->(t)`;
+      cypher += ` WITH e UNWIND $tags AS tag MERGE (t:Tag {name: tag.name}) SET t.tag_id = COALESCE(t.tag_id, tag.id) MERGE (e)-[:TAGGED]->(t)`;
     }
 
     await session.run(cypher, {
@@ -195,14 +243,39 @@ async function writeGraph(e, snapshots) {
       channelLat: e.channel?.latitude ?? null,
       channelLon: e.channel?.longitude ?? null,
       channelAddress: e.channel?.address ? JSON.stringify(e.channel.address) : null,
+      addressCountry: addr.country ?? null,
+      addressRegion: addr.region ?? null,
+      addressCounty: addr.county ?? null,
+      addressCity: addr.city ?? null,
+      addressDistrict: addr.district ?? null,
+      addressStreet: addr.street ?? null,
+      addressPlaceInfo: addr.place_info ?? null,
       eventId: e.id,
       topic: e.topic ?? null,
       module: e.module ?? null,
       level: e.level ?? null,
       startTime: e.start_time,
+      endTime: e.end_time ?? null,
+      monitorId: e.monitor_id ?? null,
+      eventIdExt: e.event_id ?? null,
+      // Person attributes
+      personAge: e.params?.attributes?.age ?? null,
+      personGender: e.params?.attributes?.gender ?? null,
+      personRace: e.params?.attributes?.race ?? null,
+      personGlasses: e.params?.attributes?.glasses ?? null,
+      personBeard: e.params?.attributes?.beard ?? null,
+      personHat: (e.params?.attributes && ('has' in e.params.attributes)) ? e.params.attributes.has : null,
+      personMask: e.params?.attributes?.mask ?? null,
+      // Vehicle attributes
+      vehicleColorValue: e.params?.object?.color?.value ?? null,
+      vehicleColorReliability: e.params?.object?.color?.reliability ?? null,
+      vehicleTypeValue: e.params?.object?.object_type?.value ?? null,
+      vehicleTypeReliability: e.params?.object?.object_type?.reliability ?? null,
+      vehicleReliability: e.params?.reliability ?? null,
       tags: e.channel?.tags ?? [],
     });
 
+    // Images
     for (const s of snapshots) {
       const url = s.image_url ?? null;
       const path = s.path ?? null;
@@ -216,9 +289,83 @@ async function writeGraph(e, snapshots) {
           `MATCH (e:Event {id: $eventId}) MERGE (i:Image {path: $path}) SET i.type=$type MERGE (e)-[:HAS_SNAPSHOT]->(i)`,
           { eventId: e.id, path, type: s.type ?? null }
         );
-      } else {
-        // Nothing to identify the image node; skip to avoid null property errors in Neo4j
-        continue;
+      }
+    }
+
+    // Identities (faces / plates) and list
+    const identities = Array.isArray(e.params?.identities) ? e.params.identities : [];
+    for (const ident of identities) {
+      if (Array.isArray(ident.faces)) {
+        for (const f of ident.faces) {
+          await session.run(
+            `MATCH (e:Event {id: $eventId})
+             MERGE (fi:FaceIdentity {id: $faceId})
+             SET fi.similarity = $similarity, fi.first_name = $firstName, fi.last_name = $lastName
+             MERGE (e)-[:MATCHED_FACE]->(fi)`,
+            {
+              eventId: e.id,
+              faceId: f.id != null ? String(f.id) : null,
+              similarity: f.similarity ?? null,
+              firstName: f.first_name ?? null,
+              lastName: f.last_name ?? null,
+            }
+          );
+
+          if (ident.list) {
+            await session.run(
+              `MATCH (e:Event {id: $eventId})
+               MERGE (l:Watchlist {id: $listId})
+               SET l.name = $listName, l.level = $listLevel
+               MERGE (fi:FaceIdentity {id: $faceId})
+               MERGE (fi)-[:IN_LIST]->(l)
+               MERGE (e)-[:IN_LIST]->(l)`,
+              {
+                eventId: e.id,
+                listId: ident.list.id != null ? String(ident.list.id) : null,
+                listName: ident.list.name ?? null,
+                listLevel: ident.list.level ?? null,
+                faceId: f.id != null ? String(f.id) : null,
+              }
+            );
+          }
+        }
+      }
+
+      if (Array.isArray(ident.plates)) {
+        for (const p of ident.plates) {
+          await session.run(
+            `MATCH (e:Event {id: $eventId})
+             MERGE (pi:PlateIdentity {id: $plateId})
+             SET pi.number = $number, pi.state = $state, pi.owner_first_name = $ownerFirst, pi.owner_last_name = $ownerLast
+             MERGE (e)-[:MATCHED_PLATE]->(pi)`,
+            {
+              eventId: e.id,
+              plateId: p.id != null ? String(p.id) : null,
+              number: p.number ?? null,
+              state: p.state ?? null,
+              ownerFirst: p.owner_first_name ?? null,
+              ownerLast: p.owner_last_name ?? null,
+            }
+          );
+
+          if (ident.list) {
+            await session.run(
+              `MATCH (e:Event {id: $eventId})
+               MERGE (l:Watchlist {id: $listId})
+               SET l.name = $listName, l.level = $listLevel
+               MERGE (pi:PlateIdentity {id: $plateId})
+               MERGE (pi)-[:IN_LIST]->(l)
+               MERGE (e)-[:IN_LIST]->(l)`,
+              {
+                eventId: e.id,
+                listId: ident.list.id != null ? String(ident.list.id) : null,
+                listName: ident.list.name ?? null,
+                listLevel: ident.list.level ?? null,
+                plateId: p.id != null ? String(p.id) : null,
+              }
+            );
+          }
+        }
       }
     }
   } finally {

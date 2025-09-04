@@ -1,1 +1,1 @@
-python "C:\Dat\@Scripts\@BACKUP COMPRESSOR\app.py" -d %1
+python ..\@BACKUP\app.py -d %1
