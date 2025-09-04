@@ -357,24 +357,59 @@ router.post('/api/debug/clear-all', requireDebugAccess, async (req, res) => {
     results.neo4j = { error: String(err.message || err) };
   }
 
-  // Cloudinary: dry-run via search count, else delete by prefix
+  // Cloudinary: dry-run via listing by prefix, else delete by batching public_ids under prefix
   try {
     const folder = require('../config').cloudinary.folder || '';
+    const prefix = folder ? (folder.endsWith('/') ? folder : folder + '/') : '';
+
     if (dryRun) {
       if (!config.mockMode && folder) {
-        const out = await cloudinary.search.expression(`folder=${folder}`).max_results(1).execute();
-        const total = out?.total_count ?? out?.total ?? 0;
-        results.cloudinary = { folder, would_delete_resources: total };
+        let total = 0; let sample = []; let cursor;
+        do {
+          const out = await cloudinary.api.resources({ type: 'upload', resource_type: 'image', prefix, max_results: 500, next_cursor: cursor });
+          const list = out?.resources || [];
+          total += list.length;
+          if (sample.length < 5) sample.push(...list.slice(0, 5 - sample.length).map(r => r.public_id));
+          cursor = out?.next_cursor;
+        } while (cursor);
+        results.cloudinary = { folder, prefix, would_delete_resources: total, sample_public_ids: sample };
       } else {
-        results.cloudinary = { skipped: true, folder };
+        results.cloudinary = { skipped: true, folder, prefix };
       }
     } else if (!config.mockMode && folder) {
-      const prefix = folder.endsWith('/') ? folder : folder + '/';
-      await cloudinary.api.delete_resources_by_prefix(prefix);
-      try { await cloudinary.api.delete_folder(folder); } catch (_) {}
-      results.cloudinary = { cleared: true, folder };
+      let deleted = 0; let errors = []; let cursor; let batches = 0;
+      do {
+        const out = await cloudinary.api.resources({ type: 'upload', resource_type: 'image', prefix, max_results: 500, next_cursor: cursor });
+        const ids = (out?.resources || []).map(r => r.public_id);
+        cursor = out?.next_cursor;
+        if (ids.length) {
+          batches++;
+          try {
+            const delRes = await cloudinary.api.delete_resources(ids, { type: 'upload', resource_type: 'image', invalidate: true });
+            const ok = delRes?.deleted ? Object.values(delRes.deleted).filter(v => v === 'deleted' || v === 'queued').length : 0;
+            deleted += ok;
+            const notFound = (delRes?.deleted ? Object.entries(delRes.deleted).filter(([,v]) => v !== 'deleted' && v !== 'queued') : []).map(([k,v]) => ({ id:k, status:v }));
+            if (notFound.length) errors.push(...notFound);
+          } catch (e) {
+            errors.push({ batchError: String(e.message || e) });
+          }
+        }
+      } while (cursor);
+
+      // Attempt to delete the (now-empty) folder; ignore failures
+      try { await cloudinary.api.delete_folder(folder); } catch (e) { errors.push({ delete_folder: String(e.message || e) }); }
+
+      // Verify remaining assets under prefix
+      let remaining = 0; let verifyCursor;
+      do {
+        const out = await cloudinary.api.resources({ type: 'upload', resource_type: 'image', prefix, max_results: 500, next_cursor: verifyCursor });
+        remaining += (out?.resources || []).length;
+        verifyCursor = out?.next_cursor;
+      } while (verifyCursor);
+
+      results.cloudinary = { cleared: remaining === 0, folder, prefix, deleted_resources: deleted, remaining_resources: remaining, batches, errors };
     } else {
-      results.cloudinary = { skipped: true, folder };
+      results.cloudinary = { skipped: true, folder, prefix };
     }
   } catch (err) {
     results.cloudinary = { error: String(err.message || err) };

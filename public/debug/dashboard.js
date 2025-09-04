@@ -369,6 +369,8 @@
       }
 
       el.innerHTML = '<pre style="white-space:pre-wrap;padding:12px;color:#a8b3cf">' + escapeHtml(JSON.stringify(j, null, 2)) + '</pre>';
+      // Proactively refresh the Cloudinary panel so the UI reflects the deletion
+      try { await loadCloudinary(); } catch(_) {}
     } catch (e) {
       el.innerHTML = '<div class="error">' + escapeHtml(e && e.message || 'Failed to clear') + '</div>';
     } finally {
