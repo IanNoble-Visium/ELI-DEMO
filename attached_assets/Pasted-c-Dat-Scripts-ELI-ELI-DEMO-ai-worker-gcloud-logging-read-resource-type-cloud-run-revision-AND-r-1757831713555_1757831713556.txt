@@ -1,0 +1,115 @@
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=ai-worker" --project=eli-demo-471705 --limit=20 --format="value(timestamp,textPayload)"
+2025-09-14T06:30:35.153181Z
+2025-09-14T06:30:01.918158Z
+2025-09-14T06:30:00.618893Z
+2025-09-14T06:30:00.561417Z     Default STARTUP TCP probe succeeded after 1 attempt for container "ai-worker-1" on port 8080.
+2025-09-14T06:30:00.560682Z     [worker] listening on 8080
+2025-09-14T06:29:56.651445Z     > node src/index.js
+2025-09-14T06:29:56.651429Z     > eli-ai-worker@0.1.0 start
+2025-09-14T06:29:55.264824Z     Starting new instance. Reason: DEPLOYMENT_ROLLOUT - Instance started due to traffic shifting between revisions due to deployment, traffic split adjustment, or deployment health check.
+2025-09-14T06:29:51.998256Z
+2025-09-14T06:29:51.748080Z
+2025-09-14T06:24:02.614750Z
+2025-09-14T06:24:00.178908Z
+2025-09-14T06:24:00.120289Z     [worker] listening on 8080
+2025-09-14T06:24:00.119527Z     Default STARTUP TCP probe succeeded after 1 attempt for container "ai-worker-1" on port 8080.
+2025-09-14T06:23:55.750451Z     > node src/index.js
+2025-09-14T06:23:55.750435Z     > eli-ai-worker@0.1.0 start
+2025-09-14T06:23:53.991881Z     Starting new instance. Reason: DEPLOYMENT_ROLLOUT - Instance started due to traffic shifting between revisions due to deployment, traffic split adjustment, or deployment health check.
+2025-09-14T06:23:50.217913Z
+2025-09-14T06:23:49.961256Z
+2025-09-14T06:15:48.713051Z
+
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>gcloud run services describe ai-worker --region=us-central1 --project=eli-demo-471705
++ Service ai-worker in region us-central1
+
+URL:     https://ai-worker-68254809229.us-central1.run.app
+Ingress: all
+Traffic:
+  100% LATEST (currently ai-worker-00003-dg4)
+
+Scaling: Auto (Min: 0)
+
+Last updated on 2025-09-14T06:30:01.904879Z by nobviz@gmail.com:
+  Revision ai-worker-00003-dg4
+  Container None
+    Image:           us-central1-docker.pkg.dev/eli-demo-471705/cloud-run-source-deploy/ai-worker@sha256:739eb345c944d7bf795f1da8928ba47be7c2378b31fc25ef244a6e91659f40b7
+    Port:            8080
+    Memory:          512Mi
+    CPU:             1000m
+    Env vars:
+      DATABASE_URL   postgresql://neondb_owner:npg_JpkW8QXvC9PG@ep-super-waterfall-adeqzhke-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+      GOOGLE_CLOUD_PROJECT eli-demo-471705
+      GOOGLE_LOCATION us-central1
+      GOOGLE_PROJECT_ID eli-demo-471705
+      GOOGLE_SERVICE_ACCOUNT_JSON {"type":"service_account","project_id":"eli-demo-471705","private_key_id":"your-key-id","private_key":"-----BEGIN PRIVATE KEY-----\nyour-private-key\n-----END PRIVATE KEY-----\n","client_email":"your-service-account@eli-demo-471705.iam.gserviceaccount.com","client_id":"your-client-id","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","client_x509_cert_url":"https://www.googleapis.com/robot/v1/metadata/x509/your-service-account%40eli-demo-471705.iam.gserviceaccount.com"}
+      NEO4J_DATABASE neo4j
+      NEO4J_PASSWORD arYRbX-RvNj5FQZPKElg5zA0NjFjD8a4kLW_mFlocIU
+      NEO4J_URI      neo4j+s://fb72cf6b.databases.neo4j.io
+      NEO4J_USERNAME neo4j
+    Startup Probe:
+      TCP every 240s
+      Port:          8080
+      Initial delay: 0s
+      Timeout:       240s
+      Failure threshold: 1
+      Type:          Default
+  Service account:   68254809229-compute@developer.gserviceaccount.com
+  Concurrency:       80
+  Max instances:     20
+  Timeout:           300s
+
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>gcloud pubsub subscriptions create ai-worker-subscription \
+ERROR: (gcloud.pubsub.subscriptions.create) argument (--topic : --topic-project): Must be specified.
+Usage: gcloud pubsub subscriptions create SUBSCRIPTION [SUBSCRIPTION ...] (--topic=TOPIC : --topic-project=TOPIC_PROJECT) [optional flags]
+  optional flags may be  --ack-deadline | --bigquery-service-account-email |
+                         --bigquery-table | --cloud-storage-bucket |
+                         --cloud-storage-file-datetime-format |
+                         --cloud-storage-file-prefix |
+                         --cloud-storage-file-suffix |
+                         --cloud-storage-max-bytes |
+                         --cloud-storage-max-duration |
+                         --cloud-storage-max-messages |
+                         --cloud-storage-output-format |
+                         --cloud-storage-service-account-email |
+                         --cloud-storage-use-topic-schema |
+                         --cloud-storage-write-metadata | --dead-letter-topic |
+                         --dead-letter-topic-project | --drop-unknown-fields |
+                         --enable-exactly-once-delivery |
+                         --enable-message-ordering | --expiration-period |
+                         --help | --labels | --max-delivery-attempts |
+                         --max-retry-delay | --message-filter |
+                         --message-retention-duration |
+                         --message-transforms-file | --min-retry-delay |
+                         --push-auth-service-account |
+                         --push-auth-token-audience | --push-endpoint |
+                         --push-no-wrapper | --push-no-wrapper-write-metadata |
+                         --retain-acked-messages | --topic-project |
+                         --use-table-schema | --use-topic-schema |
+                         --write-metadata
+
+For detailed information on this command and its flags, run:
+  gcloud pubsub subscriptions create --help
+
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>  --topic=AI_JOBS \
+'--topic' is not recognized as an internal or external command,
+operable program or batch file.
+
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>  --push-endpoint=https://ai-worker-68254809229.us-central1.run.app/_pubsub \
+'--push-endpoint' is not recognized as an internal or external command,
+operable program or batch file.
+
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>  --ack-deadline=600 \
+'--ack-deadline' is not recognized as an internal or external command,
+operable program or batch file.
+
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>  --project=eli-demo-471705
+
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>gcloud pubsub subscriptions create ai-worker-subscription   --topic=AI_JOBS   --push-endpoint=https://ai-worker-68254809229.us-central1.run.app/_pubsub   --ack-deadline=600   --project=eli-demo-471705
+ERROR: Failed to create subscription [projects/eli-demo-471705/subscriptions/ai-worker-subscription]: Resource not found (resource=AI_JOBS). This command is authenticated as nobviz@gmail.com which is the active account specified by the [core/account] property.
+ERROR: (gcloud.pubsub.subscriptions.create) Failed to create the following: [ai-worker-subscription].
+
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>gcloud pubsub subscriptions list --project=eli-demo-471705
+Listed 0 items.
+
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>

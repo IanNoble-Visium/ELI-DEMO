@@ -3,9 +3,9 @@ dotenv.config();
 
 const config = {
   env: process.env.NODE_ENV || 'development',
-  port: parseInt(process.env.PORT || '4000', 10),
+  port: parseInt(process.env.PORT || '5000', 10),
   get mockMode() {
-    return process.env.MOCK_MODE ? process.env.MOCK_MODE === 'true' : true;
+    return process.env.MOCK_MODE ? process.env.MOCK_MODE === 'true' : false;
   },
   databaseUrl: process.env.DATABASE_URL,
   neo4j: {

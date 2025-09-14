@@ -1,0 +1,48 @@
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>gcloud pubsub topics create AI_JOBS --project=eli-demo-471705
+Created topic [projects/eli-demo-471705/topics/AI_JOBS].
+
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>gcloud pubsub topics list --project=eli-demo-471705
+---
+name: projects/eli-demo-471705/topics/AI_JOBS
+
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>gcloud pubsub subscriptions create ai-worker-subscription   --topic=AI_JOBS   --push-endpoint=https://ai-worker-68254809229.us-central1.run.app/_pubsub   --ack-deadline=600   --project=eli-demo-471705
+Created subscription [projects/eli-demo-471705/subscriptions/ai-worker-subscription].
+
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>gcloud pubsub subscriptions list --project=eli-demo-471705
+---
+ackDeadlineSeconds: 600
+expirationPolicy:
+  ttl: 2678400s
+messageRetentionDuration: 604800s
+name: projects/eli-demo-471705/subscriptions/ai-worker-subscription
+pushConfig:
+  attributes:
+    x-goog-version: v1
+  pushEndpoint: https://ai-worker-68254809229.us-central1.run.app/_pubsub
+state: ACTIVE
+topic: projects/eli-demo-471705/topics/AI_JOBS
+
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>curl -v https://ai-worker-68254809229.us-central1.run.app/
+* Host ai-worker-68254809229.us-central1.run.app:443 was resolved.
+* IPv6: (none)
+* IPv4: 34.143.74.2, 34.143.73.2, 34.143.72.2, 34.143.76.2, 34.143.78.2, 34.143.77.2, 34.143.75.2, 34.143.79.2
+*   Trying 34.143.74.2:443...
+* schannel: disabled automatic use of client certificate
+* ALPN: curl offers http/1.1
+* schannel: next InitializeSecurityContext failed: CRYPT_E_NO_REVOCATION_CHECK (0x80092012) - The revocation function was unable to check revocation for the certificate.
+* closing connection #0
+curl: (35) schannel: next InitializeSecurityContext failed: CRYPT_E_NO_REVOCATION_CHECK (0x80092012) - The revocation function was unable to check revocation for the certificate.
+
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>curl -v -X POST https://ai-worker-68254809229.us-central1.run.app/_pubsub   -H "Content-Type: application/json"   -d '{"message":{"data":"eyJ0ZXN0IjoidHJ1ZSJ9"}}'
+Note: Unnecessary use of -X or --request, POST is already inferred.
+* Host ai-worker-68254809229.us-central1.run.app:443 was resolved.
+* IPv6: (none)
+* IPv4: 34.143.74.2, 34.143.73.2, 34.143.72.2, 34.143.76.2, 34.143.78.2, 34.143.77.2, 34.143.75.2, 34.143.79.2
+*   Trying 34.143.74.2:443...
+* schannel: disabled automatic use of client certificate
+* ALPN: curl offers http/1.1
+* schannel: next InitializeSecurityContext failed: CRYPT_E_NO_REVOCATION_CHECK (0x80092012) - The revocation function was unable to check revocation for the certificate.
+* closing connection #0
+curl: (35) schannel: next InitializeSecurityContext failed: CRYPT_E_NO_REVOCATION_CHECK (0x80092012) - The revocation function was unable to check revocation for the certificate.
+
+c:\Dat\@Scripts\@ELI\@ELI-DEMO\ai-worker>

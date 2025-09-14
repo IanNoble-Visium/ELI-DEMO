@@ -26,6 +26,7 @@
     loadNeo4j();
     loadCloudinary();
     loadWebhooks();
+    loadAI();
   }
 
   // Tab switching functionality
@@ -75,6 +76,13 @@
     if (webhooksPrevBtn) webhooksPrevBtn.addEventListener('click', webhooksPrev);
     if (webhooksNextBtn) webhooksNextBtn.addEventListener('click', webhooksNext);
     if (webhooksRefreshBtn) webhooksRefreshBtn.addEventListener('click', () => loadWebhooks(true));
+
+    // AI Analytics controls
+    const aiRefreshBtn = document.getElementById('ai-refresh-btn');
+    const aiViewSelect = document.getElementById('ai-view');
+    
+    if (aiRefreshBtn) aiRefreshBtn.addEventListener('click', loadAI);
+    if (aiViewSelect) aiViewSelect.addEventListener('change', loadAI);
 
     // Data management controls
     const clearDataBtn = document.getElementById('clear-data-btn');
@@ -378,13 +386,6 @@
     }
   }
 
-  // Initialize when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-
   // Webhook logs functionality
   async function loadWebhooks(reset = false) {
     if (reset) webhooksOffset = 0;
@@ -485,6 +486,127 @@
     loadWebhooks();
   }
 
+  // AI Analytics loading function
+  async function loadAI() {
+    const content = document.getElementById('ai-content');
+    const view = document.getElementById('ai-view')?.value || 'jobs';
+    const limit = parseInt(document.getElementById('ai-limit')?.value || '50', 10);
+    
+    if (!content) return;
+    
+    content.innerHTML = '<div style="padding:12px;color:#a8b3cf">Loading AI analytics...</div>';
+    
+    try {
+      const url = `/api/debug/ai?view=${encodeURIComponent(view)}&limit=${limit}`;
+      const response = await fetch(url, { headers });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (result.mock) {
+        content.innerHTML = '<div style="padding:12px;color:#a8b3cf">Mock mode - AI analytics data not available</div>';
+        return;
+      }
+      
+      if (!result.data || result.data.length === 0) {
+        content.innerHTML = `<div style="padding:12px;color:#a8b3cf">No ${view} data found</div>`;
+        return;
+      }
+      
+      let html = `<div style="margin-bottom:8px;color:#a8b3cf">Showing ${result.data.length} of ${result.total} ${view}</div>`;
+      
+      // Create table based on view type
+      switch (view) {
+        case 'jobs':
+          html += '<table><thead><tr><th>ID</th><th>Source</th><th>Status</th><th>Created</th><th>Updated</th><th>Error</th></tr></thead><tbody>';
+          result.data.forEach(item => {
+            const errorText = item.error ? escapeHtml(item.error) : '';
+            html += `<tr>
+              <td>${escapeHtml(item.id)}</td>
+              <td>${escapeHtml(item.source_type)}:${escapeHtml(item.source_id)}</td>
+              <td><span class="status-${item.status}">${escapeHtml(item.status)}</span></td>
+              <td>${fmtUTC(item.created_at)}</td>
+              <td>${fmtUTC(item.updated_at)}</td>
+              <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${errorText}</td>
+            </tr>`;
+          });
+          html += '</tbody></table>';
+          break;
+          
+        case 'detections':
+          html += '<table><thead><tr><th>ID</th><th>Event</th><th>Channel</th><th>Type</th><th>Label</th><th>Score</th><th>Time</th></tr></thead><tbody>';
+          result.data.forEach(item => {
+            const score = item.score ? (item.score * 100).toFixed(1) + '%' : '';
+            html += `<tr>
+              <td>${escapeHtml(item.id)}</td>
+              <td>${escapeHtml(item.event_id || '')}</td>
+              <td>${escapeHtml(item.channel_id || '')}</td>
+              <td>${escapeHtml(item.type || '')}</td>
+              <td>${escapeHtml(item.label || '')}</td>
+              <td>${score}</td>
+              <td>${fmtUTC(item.ts)}</td>
+            </tr>`;
+          });
+          html += '</tbody></table>';
+          break;
+          
+        case 'baselines':
+          html += '<table><thead><tr><th>ID</th><th>Entity Type</th><th>Entity ID</th><th>Features</th><th>Updated</th></tr></thead><tbody>';
+          result.data.forEach(item => {
+            const features = item.features ? JSON.stringify(item.features).substring(0, 100) + '...' : '';
+            html += `<tr>
+              <td>${escapeHtml(item.id)}</td>
+              <td>${escapeHtml(item.entity_type)}</td>
+              <td>${escapeHtml(item.entity_id)}</td>
+              <td style="max-width:200px;overflow:hidden">${escapeHtml(features)}</td>
+              <td>${fmtUTC(item.updated_at)}</td>
+            </tr>`;
+          });
+          html += '</tbody></table>';
+          break;
+          
+        case 'anomalies':
+          html += '<table><thead><tr><th>ID</th><th>Metric</th><th>Entity</th><th>Value</th><th>Score</th><th>Threshold</th><th>Time</th></tr></thead><tbody>';
+          result.data.forEach(item => {
+            html += `<tr>
+              <td>${escapeHtml(item.id)}</td>
+              <td>${escapeHtml(item.metric)}</td>
+              <td>${escapeHtml(item.entity_type)}:${escapeHtml(item.entity_id)}</td>
+              <td>${item.value ? item.value.toFixed(2) : ''}</td>
+              <td>${item.score ? item.score.toFixed(2) : ''}</td>
+              <td>${item.threshold ? item.threshold.toFixed(2) : ''}</td>
+              <td>${fmtUTC(item.ts)}</td>
+            </tr>`;
+          });
+          html += '</tbody></table>';
+          break;
+          
+        case 'insights':
+          html += '<table><thead><tr><th>ID</th><th>Scope</th><th>Summary</th><th>Recommendations</th><th>Time</th></tr></thead><tbody>';
+          result.data.forEach(item => {
+            const summary = item.summary ? escapeHtml(item.summary).substring(0, 150) + '...' : '';
+            const recs = item.recommendations ? JSON.stringify(item.recommendations).substring(0, 100) + '...' : '';
+            html += `<tr>
+              <td>${escapeHtml(item.id)}</td>
+              <td>${escapeHtml(item.scope)}:${escapeHtml(item.scope_id || '')}</td>
+              <td style="max-width:200px">${summary}</td>
+              <td style="max-width:150px">${escapeHtml(recs)}</td>
+              <td>${fmtUTC(item.ts)}</td>
+            </tr>`;
+          });
+          html += '</tbody></table>';
+          break;
+      }
+      
+      content.innerHTML = html;
+    } catch (error) {
+      content.innerHTML = `<div style="padding:12px;color:#ff6b6b">Error loading AI analytics: ${escapeHtml(error.message)}</div>`;
+    }
+  }
+
   // Export functions to global scope for compatibility
   window.loadPg = loadPg;
   window.pgNext = pgNext;
@@ -494,8 +616,15 @@
   window.loadWebhooks = loadWebhooks;
   window.webhooksNext = webhooksNext;
   window.webhooksPrev = webhooksPrev;
+  window.loadAI = loadAI;
   window.openClearModal = openClearModal;
   window.closeClearModal = closeClearModal;
   window.confirmClearAll = confirmClearAll;
 
+  // Initialize when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 })();

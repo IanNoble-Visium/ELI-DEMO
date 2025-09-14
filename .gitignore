@@ -7,3 +7,9 @@ logs/
 *.bat
 ~*
 ai-worker/env-vars.yaml
+=======
+attached_assets/
+*.txt
+attached_assets/
+*.txt
+>>>>>>> 35c1f30a660a2e4b823219020af61a8d3248fd86
