@@ -54,9 +54,9 @@ async function logWebhookRequest(req, statusCode, responseBody, errorMessage, va
       userAgent,
       contentType,
       JSON.stringify(req.headers),
-      requestBodyJson,
+      requestBodyJson ? JSON.stringify(requestBodyJson) : null,
       requestBodyRaw,
-      responseBodyJson,
+      responseBodyJson ? JSON.stringify(responseBodyJson) : null,
       errorMessage,
       validationErrors ? JSON.stringify(validationErrors) : null,
       processingTimeMs
