@@ -23,8 +23,8 @@ app.use('/ingest', require('./routes/ingest'));
 app.use('/webhook', require('./routes/webhook'));
 
 function start() {
-  const server = app.listen(config.port, () => {
-    logger.info(`ELI Ingestion API listening on port ${config.port}`);
+  const server = app.listen(config.port, '0.0.0.0', () => {
+    logger.info(`ELI Ingestion API listening on 0.0.0.0:${config.port}`);
   });
   return server;
 }
