@@ -69,6 +69,7 @@ function renderDebugTemplate({ mockBanner, debugToken, clearEnabled, cloudinaryF
     <button class="tab" data-tab="neo4j">Neo4j</button>
     <button class="tab" data-tab="cloudinary">Cloudinary</button>
     <button class="tab" data-tab="webhooks">Webhook Logs</button>
+    <button class="tab" data-tab="ai">AI Analytics</button>
     <button class="tab" data-tab="data">Data Management</button>
   </div>
 
@@ -112,6 +113,15 @@ function renderDebugTemplate({ mockBanner, debugToken, clearEnabled, cloudinaryF
       <button class="primary" id="webhooks-refresh-btn">Refresh</button>
     </div>
     <div id="webhooks-content"></div>
+  </section>
+
+  <section id="panel-ai" class="panel">
+    <div class="controls">
+      <label>View <select id="ai-view"><option value="jobs">Inference Jobs</option><option value="detections">Detections</option><option value="baselines">Baselines</option><option value="anomalies">Anomalies</option><option value="insights">Insights</option></select></label>
+      <label>Limit <input id="ai-limit" type="number" value="50" min="1" max="200" /></label>
+      <button class="primary" id="ai-refresh-btn">Refresh</button>
+    </div>
+    <div id="ai-content"></div>
   </section>
 
   <section id="panel-data" class="panel">
@@ -420,6 +430,85 @@ router.post('/api/debug/clear-all', requireDebugAccess, async (req, res) => {
   else { logger.info({ results }, 'debug clear-all completed successfully'); }
 
   return res.status(anyError ? 207 : 200).json(results);
+});
+
+// AI Analytics endpoints
+router.get('/api/debug/ai', requireDebugAccess, async (req, res) => {
+  const view = req.query.view || 'jobs';
+  const limit = Math.min(parseInt(req.query.limit || '50', 10), 200);
+  const offset = Math.max(parseInt(req.query.offset || '0', 10), 0);
+  
+  if (config.mockMode) return res.json({ mock: true, data: [], total: 0 });
+  
+  try {
+    let data = [];
+    let total = 0;
+    
+    switch (view) {
+      case 'jobs':
+        const jobsResult = await query(
+          `SELECT id, source_type, source_id, status, payload, error, created_at, updated_at 
+           FROM ai_inference_jobs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+          [limit, offset]
+        );
+        const jobsCount = await query(`SELECT COUNT(*) as total FROM ai_inference_jobs`);
+        data = jobsResult.rows;
+        total = parseInt(jobsCount.rows[0]?.total || '0', 10);
+        break;
+        
+      case 'detections':
+        const detectionsResult = await query(
+          `SELECT id, event_id, channel_id, type, label, score, bbox, meta, ts 
+           FROM ai_detections ORDER BY ts DESC LIMIT $1 OFFSET $2`,
+          [limit, offset]
+        );
+        const detectionsCount = await query(`SELECT COUNT(*) as total FROM ai_detections`);
+        data = detectionsResult.rows;
+        total = parseInt(detectionsCount.rows[0]?.total || '0', 10);
+        break;
+        
+      case 'baselines':
+        const baselinesResult = await query(
+          `SELECT id, entity_type, entity_id, features, updated_at 
+           FROM ai_baselines ORDER BY updated_at DESC LIMIT $1 OFFSET $2`,
+          [limit, offset]
+        );
+        const baselinesCount = await query(`SELECT COUNT(*) as total FROM ai_baselines`);
+        data = baselinesResult.rows;
+        total = parseInt(baselinesCount.rows[0]?.total || '0', 10);
+        break;
+        
+      case 'anomalies':
+        const anomaliesResult = await query(
+          `SELECT id, metric, entity_type, entity_id, value, score, threshold, win, context, ts 
+           FROM ai_anomalies ORDER BY ts DESC LIMIT $1 OFFSET $2`,
+          [limit, offset]
+        );
+        const anomaliesCount = await query(`SELECT COUNT(*) as total FROM ai_anomalies`);
+        data = anomaliesResult.rows;
+        total = parseInt(anomaliesCount.rows[0]?.total || '0', 10);
+        break;
+        
+      case 'insights':
+        const insightsResult = await query(
+          `SELECT id, scope, scope_id, summary, recommendations, context, ts 
+           FROM ai_insights ORDER BY ts DESC LIMIT $1 OFFSET $2`,
+          [limit, offset]
+        );
+        const insightsCount = await query(`SELECT COUNT(*) as total FROM ai_insights`);
+        data = insightsResult.rows;
+        total = parseInt(insightsCount.rows[0]?.total || '0', 10);
+        break;
+        
+      default:
+        return res.status(400).json({ error: 'Invalid view parameter' });
+    }
+    
+    res.json({ view, data, total, limit, offset });
+  } catch (err) {
+    logger.error({ err }, `Failed to fetch AI ${view} data`);
+    res.status(500).json({ error: `Failed to fetch AI ${view} data` });
+  }
 });
 
 module.exports = router;
