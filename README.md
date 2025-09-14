@@ -290,6 +290,178 @@ Notes
 
 ---
 
+## AI Analytics Integration
+
+The ELI API now includes comprehensive Google Cloud AI integration for advanced surveillance analytics. This system provides object detection, pattern classification, anomaly detection, and automated insights generation.
+
+### AI Processing Pipeline
+
+**Event Flow:**
+1. Events received via `/webhook/irex` or legacy endpoints
+2. Event data stored in PostgreSQL and Neo4j
+3. AI job automatically queued via Google Cloud Pub/Sub
+4. Dedicated AI worker processes job on Google Cloud Run
+5. AI results stored back to database with graph relationships
+
+### AI Worker Service
+
+**Production Deployment:**
+- **Service URL:** `https://ai-worker-68254809229.us-central1.run.app` 
+- **Infrastructure:** Google Cloud Run with auto-scaling
+- **Message Queue:** Google Cloud Pub/Sub topic `AI_JOBS` with subscription `ai-worker-subscription`
+- **Authentication:** Google Service Account with Vertex AI and Vision API access
+
+**Capabilities:**
+- **Object Detection:** Google Cloud Vision API for person/vehicle detection
+- **Pattern Classification:** Custom analytics for event categorization
+- **Baseline Tracking:** Statistical baselines for anomaly detection
+- **Insights Generation:** Automated pattern analysis and forecasting
+
+### AI Data Tables
+
+The system stores AI processing results in dedicated PostgreSQL tables:
+
+**ai_jobs** - Processing queue and status tracking
+```sql
+- job_id (UUID, PK)
+- event_id (references events.id)  
+- status (pending|processing|completed|failed)
+- created_at, processed_at
+- error_message
+```
+
+**ai_detections** - Object detection results
+```sql
+- id (UUID, PK)
+- event_id (references events.id)
+- job_id (references ai_jobs.job_id)
+- detection_type (person|vehicle|object)
+- confidence_score (0.0-1.0)
+- bounding_box (JSON)
+- attributes (JSON)
+```
+
+**ai_baselines** - Statistical baselines for anomaly detection
+```sql
+- id (UUID, PK)
+- channel_id (string)
+- detection_type (string)
+- time_window (string, e.g. "hour", "day")
+- baseline_mean, baseline_stddev
+- last_updated
+```
+
+**ai_anomalies** - Detected anomalies
+```sql
+- id (UUID, PK)
+- event_id (references events.id)
+- baseline_id (references ai_baselines.id)
+- anomaly_score (float)
+- severity (low|medium|high)
+- description (text)
+```
+
+**ai_insights** - Generated analytics insights
+```sql
+- id (UUID, PK)
+- insight_type (trend|pattern|forecast)
+- scope (channel|global)
+- channel_id (optional)
+- title, description
+- confidence_score
+- metadata (JSON)
+```
+
+### Enhanced Debug Dashboard
+
+The debug dashboard now includes a comprehensive **AI Analytics** tab with 5 data visualization views:
+
+1. **AI Jobs** - Processing queue status and performance metrics
+2. **AI Detections** - Object detection results with confidence scores
+3. **AI Baselines** - Statistical baselines and thresholds
+4. **AI Anomalies** - Detected anomalies with severity levels  
+5. **AI Insights** - Generated analytics and forecasts
+
+**Access:** Navigate to `/debug` → AI Analytics tab (requires debug token)
+
+### AI API Endpoints (Debug)
+
+**Get AI processing data:**
+```bash
+# AI Jobs
+curl -H "X-Debug-Token: YOUR_TOKEN" \
+  "https://elidemo.visiumtechnologies.com/api/debug/ai?view=jobs&limit=10"
+
+# AI Detections  
+curl -H "X-Debug-Token: YOUR_TOKEN" \
+  "https://elidemo.visiumtechnologies.com/api/debug/ai?view=detections&limit=10"
+
+# AI Baselines
+curl -H "X-Debug-Token: YOUR_TOKEN" \
+  "https://elidemo.visiumtechnologies.com/api/debug/ai?view=baselines"
+
+# AI Anomalies
+curl -H "X-Debug-Token: YOUR_TOKEN" \
+  "https://elidemo.visiumtechnologies.com/api/debug/ai?view=anomalies&limit=10"
+
+# AI Insights
+curl -H "X-Debug-Token: YOUR_TOKEN" \
+  "https://elidemo.visiumtechnologies.com/api/debug/ai?view=insights&limit=10"
+```
+
+### Testing AI Integration
+
+**End-to-End Test:**
+```bash
+# 1. Send event with image
+curl -X POST https://elidemo.visiumtechnologies.com/webhook/irex \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "test-ai-001",
+    "start_time": 1726298400000,
+    "channel": {"id": "test-cam", "name": "Test Camera"},
+    "snapshots": [{"type": "FULLSCREEN", "image": "data:image/png;base64,..."}]
+  }'
+
+# 2. Monitor AI job processing  
+curl -H "X-Debug-Token: YOUR_TOKEN" \
+  "https://elidemo.visiumtechnologies.com/api/debug/ai?view=jobs&limit=1"
+
+# 3. Check detection results
+curl -H "X-Debug-Token: YOUR_TOKEN" \
+  "https://elidemo.visiumtechnologies.com/api/debug/ai?view=detections&limit=1"
+```
+
+### Recent Updates & Fixes
+
+**AI Analytics Integration (September 2025)**
+
+**New Features Added:**
+- ✅ **Google Cloud AI Integration** - Complete Google Cloud Vision and Vertex AI integration
+- ✅ **AI Worker Service** - Production-deployed Cloud Run service for AI processing
+- ✅ **Pub/Sub Messaging** - Asynchronous AI job processing via Google Cloud Pub/Sub
+- ✅ **Enhanced Debug Dashboard** - 5-tab AI Analytics interface with real-time monitoring
+- ✅ **AI Database Schema** - Complete schema for AI jobs, detections, baselines, anomalies, insights
+- ✅ **End-to-End Pipeline** - Seamless event → AI processing → results storage workflow
+
+**Bug Fixes & Improvements:**
+- 🔧 **Fixed Critical Dashboard Bug** - Resolved JavaScript corruption preventing AI Analytics tab loading
+- 🔧 **Fixed Pub/Sub Authentication** - Resolved Google Service Account credential issues  
+- 🔧 **Security Enhancements** - Removed exposed secrets from git history, improved `.gitignore`
+- 🔧 **Database Connectivity** - Fixed Neo4j and PostgreSQL connection issues in AI worker
+- 🔧 **GitHub Integration** - Resolved push protection issues and repository authentication
+
+**Production Readiness:**
+- 🚀 **AI Worker Service** - Production-deployed at `https://ai-worker-68254809229.us-central1.run.app`
+- 🚀 **Scalable Architecture** - Auto-scaling Cloud Run with proper resource limits
+- 🚀 **Security Compliant** - All credentials managed via Replit Secrets
+- 🚀 **Monitoring Ready** - Complete observability via enhanced debug dashboard
+- 🚀 **Documentation Complete** - Full API documentation and usage examples
+
+**The AI analytics integration is now production-ready and actively processing surveillance events.**
+
+---
+
 ## AI Analytics Architecture (Ingestion-centric)
 
 The ingestion service now enqueues AI jobs to Google Pub/Sub; a separate Cloud Run AI Worker consumes those jobs and performs:
