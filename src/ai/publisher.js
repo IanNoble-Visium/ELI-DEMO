@@ -10,9 +10,22 @@ function getPubSub() {
   if (!topic) return null
   try {
     const { PubSub } = require('@google-cloud/pubsub')
-    pubsub = new PubSub()
+    
+    // Configure authentication for Replit environment
+    const serviceAccountJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+    if (serviceAccountJson) {
+      const credentials = JSON.parse(serviceAccountJson)
+      pubsub = new PubSub({
+        projectId: credentials.project_id,
+        keyFile: null,
+        credentials: credentials
+      })
+    } else {
+      // Fallback to default authentication
+      pubsub = new PubSub()
+    }
   } catch (e) {
-    logger.warn('[ai/publisher] @google-cloud/pubsub not installed; enqueue will be skipped')
+    logger.warn('[ai/publisher] @google-cloud/pubsub setup failed; enqueue will be skipped', e.message)
     pubsub = null
   }
   return pubsub
