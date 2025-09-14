@@ -6,3 +6,4 @@ logs/
 .tmp/
 *.bat
 ~*
+ai-worker/env-vars.yaml
