@@ -6,3 +6,5 @@ logs/
 .tmp/
 *.bat
 ~*
+attached_assets/
+*.txt
