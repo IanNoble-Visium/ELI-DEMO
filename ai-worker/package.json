@@ -1,0 +1,19 @@
+{
+  "name": "eli-ai-worker",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@google-cloud/aiplatform": "^5.7.0",
+    "@google-cloud/vertexai": "^1.10.0",
+    "dotenv": "^16.4.5",
+    "express": "^5.1.0",
+    "neo4j-driver": "^5.28.1",
+    "pg": "^8.16.3"
+  }
+}
+

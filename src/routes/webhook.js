@@ -6,6 +6,7 @@ const logger = require('../logger');
 const { query } = require('../db/postgres');
 const { getSession } = require('../db/neo4j');
 const { uploadDataUri } = require('../lib/cloudinary');
+const { enqueueAiJob } = require('../ai/publisher');
 
 const router = express.Router();
 
@@ -407,6 +408,22 @@ router.post('/irex', async (req, res) => {
       await saveEventToPostgres(parsed);
       await saveSnapshotsToPostgres(parsed.id, uploaded);
       await writeGraph(parsed, uploaded);
+
+      // Enqueue AI job via Pub/Sub (best-effort). Skips in mock mode or when not configured.
+      try {
+        await enqueueAiJob({
+          type: 'event',
+          event: {
+            id: parsed.id,
+            channel_id: (parsed.channel?.id != null ? String(parsed.channel.id) : null),
+            start_time: parsed.start_time
+          },
+          images: uploaded.map(u => u.image_url).filter(Boolean),
+          source: 'webhook_irex'
+        })
+      } catch (e) {
+        logger.warn({ err: e?.message }, 'enqueueAiJob failed (non-fatal)');
+      }
 
       results.push({ id: parsed.id, snapshots: uploaded.length });
     }

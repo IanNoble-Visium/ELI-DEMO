@@ -1,1 +1,1 @@
-python ..\@BACKUP\app.py -d %1
+python c:\dat\@Scripts\@BACKUP\app.py -d %1
