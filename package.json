@@ -13,7 +13,14 @@
     "test:all": "node scripts/test-runner.js",
     "smoke": "node scripts/smoke.js",
     "smoke:prod": "node scripts/smoke.js --base https://elidemo.visiumtechnologies.com",
-    "test:prod": "node scripts/test-production.js"
+    "test:prod": "node scripts/test-production.js",
+    "verify:cors": "node scripts/verify-cors.js",
+    "verify:auth": "node scripts/verify-auth.js",
+    "verify:insights": "node scripts/verify-insights.js",
+    "verify:env:ingestion": "node scripts/verify-env.js --target ingestion --file .env",
+    "verify:env:dashboard": "node scripts/verify-env.js --target dashboard --file eli-dashboard/.env",
+    "verify:db": "node scripts/verify-db.js",
+    "verify:e2e": "node scripts/verify-e2e-ai.js"
   },
   "dependencies": {
     "@google-cloud/pubsub": "^5.2.0",

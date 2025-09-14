@@ -286,3 +286,72 @@ Notes
 
 
 - `DEBUG_CLEAR_RATE_LIMIT_MS` (default: 1000) controls a small in-memory rate limit for POST /api/debug/clear-all to prevent accidental rapid repeated clears. Set to 0 to disable rate limiting in the debug environment.
+
+
+---
+
+## AI Analytics Architecture (Ingestion-centric)
+
+The ingestion service now enqueues AI jobs to Google Pub/Sub; a separate Cloud Run AI Worker consumes those jobs and performs:
+- Vision detections/classifications
+- Baseline + anomaly updates
+- Gemini insights generation (stored in Postgres)
+
+This decouples write-heavy AI processing from the dashboard and from the ingestion request path.
+
+### Environment variables (ingestion service)
+
+Required for core ingestion:
+- DATABASE_URL – Postgres connection string
+- NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD [, NEO4J_DATABASE]
+- CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET [, CLOUDINARY_FOLDER]
+
+AI job enqueuing:
+- AI_PUBSUB_TOPIC – Pub/Sub topic resource name. For your project:
+  - AI_PUBSUB_TOPIC=projects/eli-demo-471705/topics/AI_JOBS
+
+General/dev flags:
+- PORT – default 4000
+- NODE_ENV – development | production
+- MOCK_MODE – true to skip external writes and Pub/Sub enqueue (useful locally); false in staging/prod
+
+Auth for Pub/Sub publisher (choose one):
+- Recommended on GCP: attach a service account with Pub/Sub Publisher role to the runtime (no keys or extra vars required; client uses ADC).
+- Local/off-GCP: set GOOGLE_APPLICATION_CREDENTIALS to a service account JSON key file path that has Pub/Sub Publisher.
+
+Note on GOOGLE_SERVICE_ACCOUNT_JSON
+- The ingestion service does not read GOOGLE_SERVICE_ACCOUNT_JSON. It uses ADC for Pub/Sub. If you need JSON-in-env for other components (e.g., the AI worker), format it as a single-line JSON string (see example in the AI Worker README) because some platforms don’t accept multiline env vars.
+
+### Pub/Sub setup (once per project)
+
+Create the topic:
+```
+# gcloud CLI
+gcloud pubsub topics create AI_JOBS --project eli-demo-471705
+```
+
+After deploying the Cloud Run worker, create a push subscription pointing to the worker’s /_pubsub endpoint:
+```
+WORKER_URL="https://<cloud-run-worker-url>"  # e.g., https://ai-worker-abc-uc.a.run.app
+PUSH_SA="ai-worker-push@eli-demo-471705.iam.gserviceaccount.com"  # a service account with Pub/Sub Subscriber
+
+gcloud pubsub subscriptions create ai-jobs-sub \
+  --topic AI_JOBS \
+  --push-endpoint="$WORKER_URL/_pubsub" \
+  --push-auth-service-account="$PUSH_SA" \
+  --project eli-demo-471705
+```
+
+### MOCK_MODE guidance
+- true (development/offline): skips DB/Neo4j/Cloudinary writes and Pub/Sub enqueue; endpoints still return 200 with logging
+- false (staging/production): performs real writes and enqueues AI jobs
+
+### Security notes
+- Do not commit .env or credentials. Use your platform’s secret manager.
+- Prefer attached identities (Workload Identity/Cloud Run SA) over static JSON keys.
+- If any credentials were exposed, rotate them (DB, Cloudinary, Neo4j, and GCP keys).
+
+### Dashboard consumption
+- The dashboard reads AI outputs via read-only endpoints; the AI worker writes detections, baselines, anomalies, and insights to Postgres (and relationships to Neo4j).
+
+For the worker’s detailed configuration, see: @ELI-DEMO/ai-worker/README.md
