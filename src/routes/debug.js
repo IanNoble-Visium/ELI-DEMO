@@ -5,6 +5,8 @@ const logger = require('../logger');
 const { query } = require('../db/postgres');
 const { getSession } = require('../db/neo4j');
 const { cloudinary } = require('../lib/cloudinary');
+const https = require('https');
+const http = require('http');
 
 const router = express.Router();
 
@@ -70,6 +72,7 @@ function renderDebugTemplate({ mockBanner, debugToken, clearEnabled, cloudinaryF
     <button class="tab" data-tab="cloudinary">Cloudinary</button>
     <button class="tab" data-tab="webhooks">Webhook Logs</button>
     <button class="tab" data-tab="ai">AI Analytics</button>
+    <button class="tab" data-tab="aiworker">AI Worker Status</button>
     <button class="tab" data-tab="data">Data Management</button>
   </div>
 
@@ -122,6 +125,14 @@ function renderDebugTemplate({ mockBanner, debugToken, clearEnabled, cloudinaryF
       <button class="primary" id="ai-refresh-btn">Refresh</button>
     </div>
     <div id="ai-content"></div>
+  </section>
+
+  <section id="panel-aiworker" class="panel">
+    <div class="controls">
+      <button class="primary" id="aiworker-refresh-btn">Check Status</button>
+      <span style="color:#a8b3cf;margin-left:12px">Monitor AI Worker health and job processing</span>
+    </div>
+    <div id="aiworker-content"></div>
   </section>
 
   <section id="panel-data" class="panel">
@@ -508,6 +519,107 @@ router.get('/api/debug/ai', requireDebugAccess, async (req, res) => {
   } catch (err) {
     logger.error({ err }, `Failed to fetch AI ${view} data`);
     res.status(500).json({ error: `Failed to fetch AI ${view} data` });
+  }
+});
+
+// AI Worker Status endpoint
+async function checkAiWorkerHealth() {
+  const aiWorkerUrl = process.env.AI_WORKER_URL || 'https://ai-worker-68254809229.us-central1.run.app';
+  
+  return new Promise((resolve) => {
+    const url = new URL(`${aiWorkerUrl}/healthz`);
+    const client = url.protocol === 'https:' ? https : http;
+    
+    const req = client.request(url, { method: 'GET', timeout: 5000 }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const health = JSON.parse(data);
+          resolve({
+            status: 'healthy',
+            url: aiWorkerUrl,
+            response: health,
+            statusCode: res.statusCode,
+            timestamp: new Date().toISOString()
+          });
+        } catch (e) {
+          resolve({
+            status: 'unhealthy',
+            url: aiWorkerUrl,
+            error: 'Invalid JSON response',
+            statusCode: res.statusCode,
+            rawResponse: data.substring(0, 200),
+            timestamp: new Date().toISOString()
+          });
+        }
+      });
+    });
+    
+    req.on('error', (error) => {
+      resolve({
+        status: 'error',
+        url: aiWorkerUrl,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    });
+    
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({
+        status: 'timeout',
+        url: aiWorkerUrl,
+        error: 'Request timeout after 5 seconds',
+        timestamp: new Date().toISOString()
+      });
+    });
+    
+    req.end();
+  });
+}
+
+router.get('/api/debug/ai-worker-status', requireDebugAccess, async (req, res) => {
+  if (config.mockMode) {
+    return res.json({ 
+      mock: true, 
+      status: 'mock',
+      message: 'AI Worker status check is disabled in mock mode'
+    });
+  }
+  
+  try {
+    const health = await checkAiWorkerHealth();
+    
+    // Also check for recent AI jobs in the database
+    const oneHourAgo = Date.now() - (60 * 60 * 1000); // 1 hour ago in milliseconds
+    const recentJobs = await query(
+      `SELECT status, COUNT(*) as count, MAX(created_at) as latest_job
+       FROM ai_inference_jobs 
+       WHERE created_at > $1
+       GROUP BY status
+       ORDER BY status`,
+      [oneHourAgo]
+    );
+    
+    const pubsubStatus = {
+      topic: process.env.AI_PUBSUB_TOPIC || 'Not configured',
+      projectId: process.env.GOOGLE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || 'Not configured'
+    };
+    
+    res.json({
+      worker: health,
+      jobStats: recentJobs.rows,
+      pubsub: pubsubStatus,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    logger.error({ err }, 'Failed to check AI worker status');
+    res.status(500).json({ 
+      status: 'error',
+      error: 'Failed to check AI worker status',
+      message: err.message
+    });
   }
 });
 

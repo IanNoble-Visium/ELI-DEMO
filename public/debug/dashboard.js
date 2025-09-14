@@ -84,6 +84,10 @@
     if (aiRefreshBtn) aiRefreshBtn.addEventListener('click', loadAI);
     if (aiViewSelect) aiViewSelect.addEventListener('change', loadAI);
 
+    // AI Worker Status controls
+    const aiWorkerRefreshBtn = document.getElementById('aiworker-refresh-btn');
+    if (aiWorkerRefreshBtn) aiWorkerRefreshBtn.addEventListener('click', loadAIWorkerStatus);
+
     // Data management controls
     const clearDataBtn = document.getElementById('clear-data-btn');
     if (clearDataBtn) clearDataBtn.addEventListener('click', openClearModal);
@@ -607,6 +611,106 @@
     }
   }
 
+  // AI Worker Status loading function
+  async function loadAIWorkerStatus() {
+    const content = document.getElementById('aiworker-content');
+    if (!content) return;
+    
+    content.innerHTML = '<div style="padding:12px;color:#a8b3cf">Checking AI Worker status...</div>';
+    
+    try {
+      const response = await fetch('/api/debug/ai-worker-status', { headers });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (result.mock) {
+        content.innerHTML = '<div style="padding:12px;color:#a8b3cf">Mock mode - AI Worker status check disabled</div>';
+        return;
+      }
+      
+      let html = '<div style="padding:12px">';
+      html += '<h3 style="margin:0 0 16px 0">AI Worker Health Status</h3>';
+      
+      // Worker Status
+      const worker = result.worker;
+      const statusColor = worker.status === 'healthy' ? '#4CAF50' : 
+                          worker.status === 'unhealthy' ? '#FF9800' : '#F44336';
+      
+      html += `<div style="margin-bottom:20px;padding:12px;background:#2a2a2a;border-radius:4px">`;
+      html += `<h4 style="margin:0 0 8px 0">Worker Service</h4>`;
+      html += `<p><strong>URL:</strong> ${escapeHtml(worker.url)}</p>`;
+      html += `<p><strong>Status:</strong> <span style="color:${statusColor};font-weight:bold">${escapeHtml(worker.status.toUpperCase())}</span></p>`;
+      html += `<p><strong>Status Code:</strong> ${worker.statusCode || 'N/A'}</p>`;
+      html += `<p><strong>Last Check:</strong> ${fmtUTC(worker.timestamp)}</p>`;
+      
+      if (worker.response) {
+        html += `<p><strong>Response:</strong> <code>${escapeHtml(JSON.stringify(worker.response, null, 2))}</code></p>`;
+      }
+      
+      if (worker.error) {
+        html += `<p><strong>Error:</strong> <span style="color:#ff6b6b">${escapeHtml(worker.error)}</span></p>`;
+      }
+      
+      if (worker.rawResponse) {
+        html += `<p><strong>Raw Response:</strong> <code style="color:#ff6b6b">${escapeHtml(worker.rawResponse)}</code></p>`;
+      }
+      
+      html += `</div>`;
+      
+      // Pub/Sub Configuration
+      html += `<div style="margin-bottom:20px;padding:12px;background:#2a2a2a;border-radius:4px">`;
+      html += `<h4 style="margin:0 0 8px 0">Pub/Sub Configuration</h4>`;
+      html += `<p><strong>Topic:</strong> ${escapeHtml(result.pubsub.topic)}</p>`;
+      html += `<p><strong>Project ID:</strong> ${escapeHtml(result.pubsub.projectId)}</p>`;
+      html += `</div>`;
+      
+      // Recent Job Statistics
+      html += `<div style="margin-bottom:20px;padding:12px;background:#2a2a2a;border-radius:4px">`;
+      html += `<h4 style="margin:0 0 8px 0">Recent Job Statistics (Last Hour)</h4>`;
+      
+      if (result.jobStats && result.jobStats.length > 0) {
+        html += '<table style="width:100%;border-collapse:collapse">';
+        html += '<thead><tr style="background:#1a1a1a"><th style="padding:8px;border:1px solid #444;text-align:left">Status</th><th style="padding:8px;border:1px solid #444;text-align:left">Count</th><th style="padding:8px;border:1px solid #444;text-align:left">Latest Job</th></tr></thead><tbody>';
+        
+        result.jobStats.forEach(stat => {
+          html += `<tr>`;
+          html += `<td style="padding:8px;border:1px solid #444">${escapeHtml(stat.status)}</td>`;
+          html += `<td style="padding:8px;border:1px solid #444">${stat.count}</td>`;
+          html += `<td style="padding:8px;border:1px solid #444">${fmtUTC(stat.latest_job)}</td>`;
+          html += `</tr>`;
+        });
+        
+        html += '</tbody></table>';
+      } else {
+        html += '<p style="color:#a8b3cf">No AI jobs found in the last hour</p>';
+      }
+      
+      html += `</div>`;
+      
+      // Troubleshooting Info
+      html += `<div style="padding:12px;background:#2a2a2a;border-radius:4px">`;
+      html += `<h4 style="margin:0 0 8px 0">Troubleshooting</h4>`;
+      html += `<p style="font-size:12px;color:#a8b3cf">If AI Worker is unhealthy:</p>`;
+      html += `<ul style="font-size:12px;color:#a8b3cf;margin:8px 0">`;
+      html += `<li>Check if the worker service is deployed and running</li>`;
+      html += `<li>Verify database connectivity from the worker</li>`;
+      html += `<li>Ensure Google Cloud credentials are properly configured</li>`;
+      html += `<li>Check Cloud Run logs for detailed error information</li>`;
+      html += `</ul>`;
+      html += `</div>`;
+      
+      html += '</div>';
+      
+      content.innerHTML = html;
+    } catch (error) {
+      content.innerHTML = `<div style="padding:12px;color:#ff6b6b">Error checking AI Worker status: ${escapeHtml(error.message)}</div>`;
+    }
+  }
+
   // Export functions to global scope for compatibility
   window.loadPg = loadPg;
   window.pgNext = pgNext;
@@ -617,6 +721,7 @@
   window.webhooksNext = webhooksNext;
   window.webhooksPrev = webhooksPrev;
   window.loadAI = loadAI;
+  window.loadAIWorkerStatus = loadAIWorkerStatus;
   window.openClearModal = openClearModal;
   window.closeClearModal = closeClearModal;
   window.confirmClearAll = confirmClearAll;

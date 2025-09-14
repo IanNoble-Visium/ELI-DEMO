@@ -13,14 +13,23 @@ function getPubSub() {
     
     // Configure authentication for Replit environment
     const serviceAccountJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
-    if (serviceAccountJson) {
-      const credentials = JSON.parse(serviceAccountJson)
-      pubsub = new PubSub({
-        projectId: credentials.project_id,
-        keyFile: null,
-        credentials: credentials
-      })
+    const googleProjectId = process.env.GOOGLE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT
+    
+    if (serviceAccountJson && googleProjectId) {
+      try {
+        const credentials = JSON.parse(serviceAccountJson)
+        pubsub = new PubSub({
+          projectId: googleProjectId,
+          keyFile: null,
+          credentials: credentials
+        })
+        logger.info(`[ai/publisher] Initialized Pub/Sub with project ID: ${googleProjectId}`)
+      } catch (parseError) {
+        logger.error(`[ai/publisher] Failed to parse service account JSON: ${parseError.message}`)
+        return null
+      }
     } else {
+      logger.warn(`[ai/publisher] Missing Google Cloud credentials or project ID. ServiceAccount: ${!!serviceAccountJson}, ProjectID: ${!!googleProjectId}`)
       // Fallback to default authentication
       pubsub = new PubSub()
     }
