@@ -36,7 +36,9 @@ Preferred communication style: Simple, everyday language.
 
 ### AI Analytics Integration
 - **Pub/Sub Decoupling**: Events trigger AI jobs via Google Cloud Pub/Sub for async processing
-- **Separate AI Worker**: Dedicated Cloud Run service handles compute-intensive AI tasks
+- **Deployed AI Worker**: Production Cloud Run service at `https://ai-worker-68254809229.us-central1.run.app`
+- **Active Infrastructure**: Topic `AI_JOBS` and subscription `ai-worker-subscription` processing jobs
+- **Enhanced Debug Dashboard**: 5-tab AI Analytics view (jobs, detections, baselines, anomalies, insights)
 - **Detection Storage**: AI results stored back to PostgreSQL with graph linking in Neo4j
 - **Baseline Analytics**: Automatic anomaly detection based on rolling statistical baselines
 
