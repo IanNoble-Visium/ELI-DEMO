@@ -4,7 +4,7 @@ const config = require('../config');
 const logger = require('../logger');
 const { query } = require('../db/postgres');
 const { getSession } = require('../db/neo4j');
-const { cloudinary } = require('../lib/cloudinary');
+const { cloudinary, purgeOldImages } = require('../lib/cloudinary');
 const https = require('https');
 const http = require('http');
 
@@ -74,6 +74,7 @@ function renderDebugTemplate({ mockBanner, debugToken, clearEnabled, cloudinaryF
     <button class="tab" data-tab="ai">AI Analytics</button>
     <button class="tab" data-tab="aiworker">AI Worker Status</button>
     <button class="tab" data-tab="data">Data Management</button>
+    <button class="tab" data-tab="settings">Settings</button>
   </div>
 
   <section id="panel-pg" class="panel active">
@@ -145,6 +146,63 @@ function renderDebugTemplate({ mockBanner, debugToken, clearEnabled, cloudinaryF
     </div>
   </section>
 
+  <section id="panel-settings" class="panel">
+    <div style="padding:16px">
+      <h2 style="margin:0 0 16px 0;font-size:16px;color:#e6eefc">Cloudinary Usage Management</h2>
+
+      <div style="background:#0e152b;border:1px solid #1d2744;border-radius:8px;padding:16px;margin-bottom:16px">
+        <h3 style="margin:0 0 12px 0;font-size:14px;color:#e6eefc">Upload Control</h3>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="cloudinary-enabled-toggle" style="width:auto" />
+            <span style="color:#a8b3cf">Enable Cloudinary Image Uploads</span>
+          </label>
+        </div>
+        <div style="color:#a8b3cf;font-size:12px;margin-top:8px">
+          When disabled, image uploads will be skipped to prevent credit usage. Set via CLOUDINARY_ENABLED environment variable.
+        </div>
+        <div id="cloudinary-status" style="margin-top:8px;padding:8px;background:#0b0f1e;border:1px solid #1d2744;border-radius:6px;font-size:12px"></div>
+      </div>
+
+      <div style="background:#0e152b;border:1px solid #1d2744;border-radius:8px;padding:16px">
+        <h3 style="margin:0 0 12px 0;font-size:14px;color:#e6eefc">Image Purge Policy</h3>
+        <div style="color:#a8b3cf;font-size:12px;margin-bottom:12px">
+          Delete images older than the selected time period to manage your rolling 30-day transformation credits.
+          <br/><strong>Note:</strong> 1,000 transformations = 1 credit. Your Plus plan includes 225 credits/month.
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+          <label style="color:#a8b3cf">Delete images older than:</label>
+          <select id="purge-days" style="width:auto">
+            <option value="1">1 day</option>
+            <option value="7" selected>7 days</option>
+            <option value="14">14 days</option>
+            <option value="30">30 days</option>
+          </select>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+          <label style="display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="purge-dry-run" checked style="width:auto" />
+            <span style="color:#a8b3cf">Dry run (preview only)</span>
+          </label>
+        </div>
+
+        <div style="display:flex;gap:8px">
+          <button class="danger" id="purge-images-btn">Purge Old Images</button>
+          <button class="primary" id="refresh-settings-btn">Refresh Status</button>
+        </div>
+
+        <div id="purge-result" style="margin-top:12px"></div>
+      </div>
+
+      <div style="margin-top:16px;padding:12px;background:#2b364f;border:1px solid #1d2744;border-radius:8px;color:#ffd24d;font-size:12px">
+        <strong>Account Info:</strong> Cloud Name: ${config.cloudinary.cloudName || 'Not configured'} | Folder: ${cloudinaryFolder}
+        <br/><strong>Credit Limit:</strong> 225 credits/month (Plus plan) | <strong>Usage:</strong> Calculated on rolling 30-day basis
+      </div>
+    </div>
+  </section>
+
   <script>
     // Pass configuration to the client-side script
     window.DEBUG_CONFIG = {
@@ -205,6 +263,49 @@ router.get('/api/debug/neo4j', requireDebugAccess, async (_req, res) => {
     res.status(500).json({ error: 'Failed to query Neo4j' });
   } finally {
     try { await session.close(); } catch (_) {}
+  }
+});
+
+// GET /api/debug/cloudinary/settings - Get current Cloudinary settings
+router.get('/api/debug/cloudinary/settings', requireDebugAccess, async (req, res) => {
+  try {
+    const settings = {
+      enabled: config.cloudinary.enabled,
+      cloudName: config.cloudinary.cloudName,
+      folder: config.cloudinary.folder,
+    };
+    res.json(settings);
+  } catch (err) {
+    logger.error({ err }, 'Failed to get Cloudinary settings');
+    res.status(500).json({ error: String(err.message || err) });
+  }
+});
+
+// POST /api/debug/cloudinary/purge - Purge old images from Cloudinary
+router.post('/api/debug/cloudinary/purge', requireDebugAccess, async (req, res) => {
+  const enabled = process.env.DEBUG_DASHBOARD_ENABLED === 'true' || config.env !== 'production';
+  if (!enabled) return res.status(404).end();
+
+  if (config.mockMode) {
+    return res.json({ mock: true, deleted: 0, total: 0, sample: [] });
+  }
+
+  try {
+    const days = parseInt(req.body.days || '7', 10);
+    const dryRun = req.body.dry_run === true || req.body.dry_run === 'true';
+
+    if (days < 1 || days > 365) {
+      return res.status(400).json({ error: 'Days must be between 1 and 365' });
+    }
+
+    logger.info({ days, dryRun }, 'Cloudinary purge requested');
+    const result = await purgeOldImages(days, dryRun);
+
+    logger.info({ result }, 'Cloudinary purge completed');
+    res.json(result);
+  } catch (err) {
+    logger.error({ err }, 'Failed to purge Cloudinary images');
+    res.status(500).json({ error: String(err.message || err) });
   }
 });
 

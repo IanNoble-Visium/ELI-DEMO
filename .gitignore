@@ -3,9 +3,12 @@ node_modules/
 coverage/
 dist/
 logs/
+dist/
+.git/
 .tmp/
 *.bat
 ~*
 ai-worker/env-vars.yaml
+ai-worker/node_modules
 attached_assets/
 *.txt

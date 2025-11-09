@@ -19,6 +19,9 @@ const config = {
     apiKey: process.env.CLOUDINARY_API_KEY,
     apiSecret: process.env.CLOUDINARY_API_SECRET,
     folder: process.env.CLOUDINARY_FOLDER || 'irex-events',
+    get enabled() {
+      return process.env.CLOUDINARY_ENABLED !== 'false';
+    },
   },
 };
 

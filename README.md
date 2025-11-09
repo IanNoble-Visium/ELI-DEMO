@@ -120,6 +120,11 @@ curl -i -X POST https://elidemo.visiumtechnologies.com/webhook/irex \
 ### Debug Dashboard (optional)
 - URL: https://elidemo.visiumtechnologies.com/debug?token=YOUR_TOKEN
 - Requirements: DEBUG_DASHBOARD_ENABLED=true on the server. If DEBUG_DASHBOARD_TOKEN is set, you must send the token as query param or header `X-Debug-Token`.
+- **New Settings Tab**: Manage Cloudinary usage with upload toggle and image purge features
+  - Enable/disable Cloudinary uploads via CLOUDINARY_ENABLED environment variable
+  - Purge old images (1, 7, 14, or 30 days) to manage transformation credits
+  - Dry-run mode to preview deletions before executing
+  - Helps prevent account overages (Plus plan: 225 credits/month)
 
 ### Behavior in MOCK mode
 - When server env `MOCK_MODE=true`, DB and Cloudinary/Neo4j writes are skipped. Endpoints still return 200, and the Debug dashboard shows a banner.
@@ -306,7 +311,7 @@ The ELI API now includes comprehensive Google Cloud AI integration for advanced 
 ### AI Worker Service
 
 **Production Deployment:**
-- **Service URL:** `https://ai-worker-68254809229.us-central1.run.app` 
+- **Service URL:** `https://ai-worker-68254809229.us-central1.run.app`
 - **Infrastructure:** Google Cloud Run with auto-scaling
 - **Message Queue:** Google Cloud Pub/Sub topic `AI_JOBS` with subscription `ai-worker-subscription`
 - **Authentication:** Google Service Account with Vertex AI and Vision API access
@@ -325,7 +330,7 @@ The system stores AI processing results in dedicated PostgreSQL tables:
 **ai_jobs** - Processing queue and status tracking
 ```sql
 - job_id (UUID, PK)
-- event_id (references events.id)  
+- event_id (references events.id)
 - status (pending|processing|completed|failed)
 - created_at, processed_at
 - error_message
@@ -399,7 +404,7 @@ The debug dashboard now includes comprehensive monitoring across **6 specialized
 curl -H "X-Debug-Token: YOUR_TOKEN" \
   "https://elidemo.visiumtechnologies.com/api/debug/ai?view=jobs&limit=10"
 
-# AI Detections  
+# AI Detections
 curl -H "X-Debug-Token: YOUR_TOKEN" \
   "https://elidemo.visiumtechnologies.com/api/debug/ai?view=detections&limit=10"
 
@@ -430,7 +435,7 @@ curl -H "X-Debug-Token: YOUR_TOKEN" \
 curl -H "X-Debug-Token: YOUR_TOKEN" \
   "https://elidemo.visiumtechnologies.com/api/debug/pg?limit=10"
 
-# Neo4j Graph Data  
+# Neo4j Graph Data
 curl -H "X-Debug-Token: YOUR_TOKEN" \
   "https://elidemo.visiumtechnologies.com/api/debug/neo4j"
 
@@ -453,7 +458,7 @@ curl -X POST https://elidemo.visiumtechnologies.com/webhook/irex \
     "snapshots": [{"type": "FULLSCREEN", "image": "data:image/png;base64,..."}]
   }'
 
-# 2. Monitor AI job processing  
+# 2. Monitor AI job processing
 curl -H "X-Debug-Token: YOUR_TOKEN" \
   "https://elidemo.visiumtechnologies.com/api/debug/ai?view=jobs&limit=1"
 
@@ -471,7 +476,7 @@ curl -H "X-Debug-Token: YOUR_TOKEN" \
 {
   "requests": [{
     "job_id": "uuid-abc-123",
-    "event_id": "test-ai-001", 
+    "event_id": "test-ai-001",
     "status": "completed",
     "processing_time": 2.1,
     "created_at": "2025-09-14T17:36:54.084Z"
@@ -497,7 +502,7 @@ curl -H "X-Debug-Token: YOUR_TOKEN" \
 
 **✅ Core Features Delivered:**
 - **Google Cloud AI Integration** - Complete Google Cloud Vision and Vertex AI integration
-- **AI Worker Service** - Production-deployed Cloud Run service for AI processing  
+- **AI Worker Service** - Production-deployed Cloud Run service for AI processing
 - **Pub/Sub Messaging** - Asynchronous AI job processing via Google Cloud Pub/Sub
 - **Enhanced Debug Dashboard** - 6-tab comprehensive monitoring interface
 - **AI Database Schema** - Complete schema for AI jobs, detections, baselines, anomalies, insights
@@ -520,7 +525,7 @@ curl -H "X-Debug-Token: YOUR_TOKEN" \
 **📊 Current System Performance:**
 - **Event Processing** - ✅ IREX webhooks processing successfully (200 status)
 - **Database Operations** - ✅ PostgreSQL and Neo4j storing data correctly
-- **Image Processing** - ✅ Cloudinary uploads working seamlessly  
+- **Image Processing** - ✅ Cloudinary uploads working seamlessly
 - **AI Job Queuing** - ✅ Pub/Sub authentication successful
 - **AI Worker Processing** - ✅ Detections and insights being generated
 - **Webhook Logging** - ✅ Complete request/response tracking with proper JSON formatting
@@ -616,7 +621,7 @@ The ELI Ingestion API now provides a complete, operational AI analytics pipeline
 ```sql
 -- Primary event storage
 events              -- IREX events with metadata
-snapshots           -- Associated images/media  
+snapshots           -- Associated images/media
 webhook_requests    -- Complete API request logs
 ```
 
@@ -625,12 +630,12 @@ webhook_requests    -- Complete API request logs
 -- AI processing results (ACTIVELY POPULATING)
 ai_inference_jobs   -- Job processing queue and performance metrics
 ai_detections      -- Object detection results with confidence scores
-ai_baselines       -- Statistical baselines for anomaly detection  
+ai_baselines       -- Statistical baselines for anomaly detection
 ai_anomalies       -- Detected anomalies with severity levels
 ai_insights        -- Generated behavioral analytics and forecasts
 ```
 
-### Graph Relationships (Neo4j)  
+### Graph Relationships (Neo4j)
 ```cypher
 // Network analysis ready
 (Camera)-[:GENERATED]->(Event)
@@ -647,7 +652,7 @@ BASE_URL="https://elidemo.visiumtechnologies.com"
 # Event data
 GET $BASE_URL/api/debug/pg?limit=100
 
-# AI analytics  
+# AI analytics
 GET $BASE_URL/api/debug/ai?view=detections&limit=100
 GET $BASE_URL/api/debug/ai?view=jobs&limit=100
 GET $BASE_URL/api/debug/ai?view=baselines
@@ -661,7 +666,7 @@ GET $BASE_URL/api/debug/webhook-requests?status=200
 
 ### 🚀 Current Production Status (September 2025)
 - ✅ **Event Ingestion**: IREX webhooks processing at 100% success rate
-- ✅ **AI Pipeline**: Google Cloud AI worker fully operational  
+- ✅ **AI Pipeline**: Google Cloud AI worker fully operational
 - ✅ **Data Flow**: All tables actively populating with real surveillance data
 - ✅ **Authentication**: Google Cloud credentials properly configured
 - ✅ **Monitoring**: Complete observability via debug dashboard
@@ -675,3 +680,19 @@ Based on current processing:
 - **Insights**: Generated daily with trend analysis and forecasts
 
 **The ingestion API is production-ready. All AI analytics data is live and available for dashboard integration.**
+
+---
+
+## TODO: Postgres indexing for AI Metrics (defer until after current testing)
+
+Planned indexes to speed up dashboard queries without altering behavior:
+
+```sql
+CREATE INDEX IF NOT EXISTS ai_detections_ts_type_idx ON ai_detections (ts, type);
+-- channel_id, ts index already exists as ai_detections_channel_ts_idx
+CREATE INDEX IF NOT EXISTS ai_inference_jobs_updated_status_idx ON ai_inference_jobs (updated_at, status);
+CREATE INDEX IF NOT EXISTS ai_anomalies_ts_idx ON ai_anomalies (ts);
+```
+
+Do not apply during ongoing tests to avoid variability in performance measurements; schedule for the next maintenance window.
+

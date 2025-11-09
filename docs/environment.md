@@ -28,6 +28,11 @@ Tables expected (simplified):
 - CLOUDINARY_API_KEY
 - CLOUDINARY_API_SECRET
 - CLOUDINARY_FOLDER: root folder for uploads (default: irex-events)
+- CLOUDINARY_ENABLED: enable/disable image uploads (default: true)
+  - Set to `false` to disable Cloudinary uploads and prevent credit usage
+  - When disabled, image upload functions return null instead of uploading
+  - Useful for managing credit limits on Plus plan (225 credits/month)
+  - Note: 1,000 transformations = 1 credit; credits calculated on rolling 30-day basis
 
 ## Example .env
 ```
@@ -49,6 +54,7 @@ CLOUDINARY_CLOUD_NAME=your_cloud
 CLOUDINARY_API_KEY=1234567890
 CLOUDINARY_API_SECRET=shhh
 CLOUDINARY_FOLDER=irex-events
+CLOUDINARY_ENABLED=true
 ```
 
 ## Setup instructions
@@ -95,4 +101,32 @@ CREATE TABLE IF NOT EXISTS snapshots (
 1. Create account and API keys
 2. Ensure unsigned/signed uploads are allowed for your use case; this app uses API key/secret server-side
 3. Optionally create folder named from CLOUDINARY_FOLDER
+
+## Cloudinary Usage Management
+
+The Debug Dashboard includes features to manage Cloudinary usage and prevent account overages:
+
+### Upload Toggle
+- Control Cloudinary uploads via the `CLOUDINARY_ENABLED` environment variable
+- Set to `false` to disable uploads and prevent credit usage
+- Useful when approaching credit limits or during maintenance
+
+### Image Purge Policy
+- Access via Debug Dashboard → Settings tab
+- Delete images older than configurable time periods (1, 7, 14, or 30 days)
+- Includes dry-run mode to preview deletions before executing
+- Helps manage rolling 30-day transformation credits
+
+### Credit Information
+- Plus plan: 225 credits/month
+- 1,000 transformations = 1 credit
+- Each upload counts as 1 transformation
+- Credits calculated on rolling 30-day basis
+- Storage costs are minimal compared to transformation credits
+
+### Usage Tips
+1. Set up a regular purge schedule (e.g., delete images older than 7 days)
+2. Monitor usage in the Debug Dashboard Settings tab
+3. Disable uploads temporarily if approaching credit limits
+4. Use dry-run mode before purging to verify what will be deleted
 

@@ -14,19 +14,21 @@
   let pgOffset = 0;
   let webhooksOffset = 0;
   let clearModalEl = null;
+  let purgeModalEl = null;
 
   // Initialize the dashboard
   function init() {
     setupTabs();
     setupEventListeners();
     setupClearDataButton();
-    
+
     // Initial data loads
     loadPg();
     loadNeo4j();
     loadCloudinary();
     loadWebhooks();
     loadAI();
+    loadSettings();
   }
 
   // Tab switching functionality
@@ -91,6 +93,19 @@
     // Data management controls
     const clearDataBtn = document.getElementById('clear-data-btn');
     if (clearDataBtn) clearDataBtn.addEventListener('click', openClearModal);
+
+    // Settings controls
+    const refreshSettingsBtn = document.getElementById('refresh-settings-btn');
+    const purgeImagesBtn = document.getElementById('purge-images-btn');
+    const cloudinaryEnabledToggle = document.getElementById('cloudinary-enabled-toggle');
+
+    if (refreshSettingsBtn) refreshSettingsBtn.addEventListener('click', loadSettings);
+    if (purgeImagesBtn) purgeImagesBtn.addEventListener('click', openPurgeModal);
+    if (cloudinaryEnabledToggle) {
+      cloudinaryEnabledToggle.addEventListener('change', function() {
+        showCloudinaryToggleWarning(this.checked);
+      });
+    }
   }
 
   // Setup clear data button state
@@ -725,6 +740,135 @@
   window.openClearModal = openClearModal;
   window.closeClearModal = closeClearModal;
   window.confirmClearAll = confirmClearAll;
+
+  // Settings functions
+  async function loadSettings() {
+    const statusEl = document.getElementById('cloudinary-status');
+    const toggleEl = document.getElementById('cloudinary-enabled-toggle');
+
+    if (!statusEl) return;
+
+    try {
+      const response = await fetch('/api/debug/cloudinary/settings', { headers });
+      const settings = await response.json();
+
+      if (toggleEl) {
+        toggleEl.checked = settings.enabled;
+      }
+
+      statusEl.innerHTML = '<div style="color:' + (settings.enabled ? '#4ade80' : '#ffd24d') + '">' +
+        '<strong>Status:</strong> ' + (settings.enabled ? 'Enabled' : 'Disabled') +
+        ' | <strong>Cloud:</strong> ' + (settings.cloudName || 'Not configured') +
+        ' | <strong>Folder:</strong> ' + (settings.folder || 'Not configured') +
+        '</div>';
+    } catch (err) {
+      statusEl.innerHTML = '<div style="color:#ff8080">Error loading settings: ' + escapeHtml(String(err.message || err)) + '</div>';
+    }
+  }
+
+  function showCloudinaryToggleWarning(enabled) {
+    const statusEl = document.getElementById('cloudinary-status');
+    if (!statusEl) return;
+
+    const message = enabled
+      ? 'To enable Cloudinary uploads, set CLOUDINARY_ENABLED=true in your environment variables and restart the server.'
+      : 'To disable Cloudinary uploads, set CLOUDINARY_ENABLED=false in your environment variables and restart the server.';
+
+    statusEl.innerHTML = '<div style="color:#ffd24d;padding:8px;background:#2b364f;border-radius:4px">' +
+      '<strong>Note:</strong> ' + escapeHtml(message) +
+      '</div>';
+  }
+
+  function openPurgeModal() {
+    const days = document.getElementById('purge-days')?.value || '7';
+    const dryRun = document.getElementById('purge-dry-run')?.checked;
+
+    const msg = dryRun
+      ? 'Preview: This will show what images would be deleted (older than ' + days + ' days) without actually deleting them.'
+      : 'WARNING: This will permanently delete all images older than ' + days + ' days from Cloudinary.\\n\\nThis action cannot be undone!';
+
+    purgeModalEl = document.createElement('div');
+    purgeModalEl.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:9999">' +
+      '<div style="background:#0e152b;border:1px solid #1d2744;border-radius:8px;max-width:520px;width:92%;padding:16px;color:#e6eefc">' +
+      '<h3 style="margin:0 0 8px 0">Confirm Image Purge</h3>' +
+      '<pre style="white-space:pre-wrap;background:#0b0f1e;border:1px solid #1d2744;padding:8px;border-radius:6px;color:#a8b3cf">' + msg + '</pre>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">' +
+      '<button onclick="window.closePurgeModal()">Cancel</button>' +
+      '<button class="' + (dryRun ? 'primary' : 'danger') + '" onclick="window.confirmPurge()">' + (dryRun ? 'Preview' : 'Yes, Purge') + '</button>' +
+      '</div></div></div>';
+    document.body.appendChild(purgeModalEl);
+  }
+
+  function closePurgeModal() {
+    if (purgeModalEl) {
+      purgeModalEl.remove();
+      purgeModalEl = null;
+    }
+  }
+
+  async function confirmPurge() {
+    closePurgeModal();
+
+    const days = document.getElementById('purge-days')?.value || '7';
+    const dryRun = document.getElementById('purge-dry-run')?.checked || false;
+    const resultEl = document.getElementById('purge-result');
+
+    if (!resultEl) return;
+
+    resultEl.innerHTML = '<div style="color:#ffd24d">Processing... please wait</div>';
+
+    try {
+      const response = await fetch('/api/debug/cloudinary/purge', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: parseInt(days, 10), dry_run: dryRun })
+      });
+
+      const result = await response.json();
+
+      if (result.mock) {
+        resultEl.innerHTML = '<div style="color:#a8b3cf">Mock mode - purge not executed</div>';
+        return;
+      }
+
+      if (result.error) {
+        resultEl.innerHTML = '<div style="color:#ff8080">Error: ' + escapeHtml(result.error) + '</div>';
+        return;
+      }
+
+      const color = dryRun ? '#3aa0ff' : '#4ade80';
+      let html = '<div style="color:' + color + ';padding:12px;background:#0b0f1e;border:1px solid #1d2744;border-radius:6px">';
+
+      if (dryRun) {
+        html += '<strong>Preview Results:</strong><br/>';
+        html += 'Found ' + result.total + ' images older than ' + days + ' days<br/>';
+        if (result.sample && result.sample.length > 0) {
+          html += '<br/><strong>Sample (first 10):</strong><br/>';
+          html += '<ul style="margin:4px 0;padding-left:20px">';
+          result.sample.forEach(function(id) {
+            html += '<li style="font-size:11px;color:#a8b3cf">' + escapeHtml(id) + '</li>';
+          });
+          html += '</ul>';
+        }
+        html += '<br/><em>Uncheck "Dry run" and click "Purge Old Images" again to actually delete these images.</em>';
+      } else {
+        html += '<strong>Purge Complete!</strong><br/>';
+        html += 'Deleted ' + result.deleted + ' of ' + result.total + ' images older than ' + days + ' days';
+      }
+
+      html += '</div>';
+      resultEl.innerHTML = html;
+
+      // Refresh Cloudinary view if on that tab
+      loadCloudinary();
+    } catch (err) {
+      resultEl.innerHTML = '<div style="color:#ff8080">Error: ' + escapeHtml(String(err.message || err)) + '</div>';
+    }
+  }
+
+  // Expose functions to window for modal callbacks
+  window.closePurgeModal = closePurgeModal;
+  window.confirmPurge = confirmPurge;
 
   // Initialize when DOM is ready
   if (document.readyState === 'loading') {
