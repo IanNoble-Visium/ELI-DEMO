@@ -120,11 +120,61 @@ curl -i -X POST https://elidemo.visiumtechnologies.com/webhook/irex \
 ### Debug Dashboard (optional)
 - URL: https://elidemo.visiumtechnologies.com/debug?token=YOUR_TOKEN
 - Requirements: DEBUG_DASHBOARD_ENABLED=true on the server. If DEBUG_DASHBOARD_TOKEN is set, you must send the token as query param or header `X-Debug-Token`.
-- **New Settings Tab**: Manage Cloudinary usage with upload toggle and image purge features
-  - Enable/disable Cloudinary uploads via CLOUDINARY_ENABLED environment variable
-  - Purge old images (1, 7, 14, or 30 days) to manage transformation credits
-  - Dry-run mode to preview deletions before executing
-  - Helps prevent account overages (Plus plan: 225 credits/month)
+
+#### Settings Tab: Cloudinary Usage Management
+
+**Upload Control**
+- Enable/disable Cloudinary uploads via `CLOUDINARY_ENABLED` environment variable
+- When disabled, image uploads are skipped to prevent credit usage
+- Useful for managing credit limits on Plus plan (225 credits/month)
+
+**Image Purge Policy**
+Two purge options are available in the Settings tab:
+
+1. **Purge Old Images (1 batch)**
+   - Single-batch purge: deletes up to 200 images per request
+   - Select retention period: 1, 7, 14, or 30 days
+   - Dry-run mode to preview deletions before executing
+   - Use for occasional manual cleanup
+
+2. **Auto-Purge (Multi-Batch)** ⭐ NEW - CONTINUOUS MODE
+   - Automated multi-batch purge system with continuous automatic retry
+   - Runs continuously: 4-minute cycles with 1-minute pauses between cycles
+   - Real-time progress updates via Server-Sent Events (SSE)
+   - Performance: ~8,000-10,000 images per 4-minute cycle
+   - Ideal for clearing large backlogs (900,000+ images)
+   - **Fully automatic** - no manual intervention needed!
+   - Usage:
+     1. Click "Auto-Purge (Multi-Batch)" button
+     2. Confirm the action (WARNING: cannot be undone)
+     3. System automatically runs continuous cycles with 1-minute pauses
+     4. Watch real-time progress showing cycle number and cumulative totals
+     5. Click "Stop Auto-Purge" button to cancel at any time
+     6. System stops automatically when all old images are deleted
+   - Example: 900,000 images = ~90-112 cycles (runs automatically, ~12-15 hours total)
+
+**Automatic Purge on Upload** ⭐ NEW
+- Enabled by default when `CLOUDINARY_RETENTION_DAYS > 0`
+- Automatically deletes old images when new ones are uploaded
+- Non-blocking, asynchronous operation (doesn't slow down uploads)
+- Deletes up to 100 old images per upload
+- Prevents accumulation beyond configured retention period
+- Logged as: `[Auto-Purge] Deleted X old images (>Y days)`
+
+**Configuration**
+- `CLOUDINARY_RETENTION_DAYS`: Image retention period in days (default: 7)
+  - Set to 0 to disable automatic purging
+  - Applies to both automatic and manual purge operations
+  - Configurable per environment (dev, staging, production)
+- `CLOUDINARY_ENABLED`: Enable/disable uploads (default: true)
+- `CLOUDINARY_FOLDER`: Root folder for uploads (default: irex-events)
+
+**Status Display**
+- Settings tab shows current configuration:
+  - Auto-Purge status (Enabled/Disabled)
+  - Retention period (X days)
+  - Account info: Cloud Name, Folder, Credit Limit
+  - Usage: Calculated on rolling 30-day basis
 
 ### Behavior in MOCK mode
 - When server env `MOCK_MODE=true`, DB and Cloudinary/Neo4j writes are skipped. Endpoints still return 200, and the Debug dashboard shows a banner.
@@ -140,6 +190,21 @@ Common causes:
 - Missing environment variables (DATABASE_URL, NEO4J_*, CLOUDINARY_*). Set in Vercel → Settings → Environment Variables.
 - Large images: Vercel function body limit (~4–5 MB). Use smaller images for webhooks.
 - Cloudinary error: invalid base64 string. Ensure the `image` is a valid PNG/JPEG data URI or raw base64.
+
+**Cloudinary Auto-Purge Troubleshooting**
+- **Auto-Purge running continuously**: This is expected! The system automatically runs multiple 4-minute cycles with 1-minute pauses. It will stop automatically when all old images are deleted.
+- **Want to stop Auto-Purge**: Click the "Stop Auto-Purge" button that appears during the purge. The system will stop after the current cycle completes.
+- **Auto-Purge not responding**: Check browser console for errors. Verify `DEBUG_DASHBOARD_ENABLED=true` and token is correct. Ensure you're not already running another auto-purge.
+- **Automatic purge not working**:
+  - Verify `CLOUDINARY_RETENTION_DAYS > 0` (default: 7)
+  - Check Vercel logs for `[Auto-Purge]` messages
+  - Ensure images are being uploaded (triggers the automatic purge)
+- **Images still accumulating**:
+  - Verify automatic purge is enabled (`CLOUDINARY_RETENTION_DAYS > 0`)
+  - Check if upload rate exceeds purge rate (100 images per upload)
+  - Run manual Auto-Purge to catch up
+- **Purge deletes wrong images**: Verify `CLOUDINARY_RETENTION_DAYS` is set correctly. Purge deletes images older than this many days.
+- **Browser tab closed during purge**: The purge will stop. You can restart it by clicking "Auto-Purge" again. Progress is not persisted across browser sessions.
 
 ---
 
@@ -172,8 +237,11 @@ POST /webhook/irex      → Status 200 JSON: { status: 'success', processed: 1, 
 ### Deployment notes (Vercel)
 - Check logs in Vercel → Projects → eli-demo → Logs. Filter by route (e.g., `/webhook/irex`).
 - Environment variables must be set in Vercel for live writes:
-  - DATABASE_URL, NEO4J_URI/USERNAME/PASSWORD[/DATABASE], CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET[/FOLDER]
-  - Optional: DEBUG_DASHBOARD_ENABLED, DEBUG_DASHBOARD_TOKEN, MOCK_MODE
+  - **Required**: DATABASE_URL, NEO4J_URI/USERNAME/PASSWORD[/DATABASE], CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET[/FOLDER]
+  - **Optional**: DEBUG_DASHBOARD_ENABLED, DEBUG_DASHBOARD_TOKEN, MOCK_MODE
+  - **Cloudinary Management**: CLOUDINARY_ENABLED (default: true), CLOUDINARY_RETENTION_DAYS (default: 7)
+    - Set `CLOUDINARY_RETENTION_DAYS=0` to disable automatic purging
+    - Set `CLOUDINARY_ENABLED=false` to disable all uploads (prevents credit usage)
 
 ### Neo4j Database Schema
 This API maps incoming webhook payloads to a property graph for analytics. Below is the current schema and mappings, aligned to “Face found in list” (FaceMatched) and “Number found in list” (PlateMatched) examples.
@@ -539,6 +607,155 @@ The ingestion API is now production-ready with a complete AI analytics pipeline.
 - `ai_insights` - Generated analytics and behavioral insights
 
 **The ELI Dashboard can now safely consume this data for user-facing analytics and visualizations.**
+
+---
+
+## Cloudinary Usage Management
+
+Managing Cloudinary credits is critical to prevent account overages. The Plus plan includes 225 credits/month, with 1,000 transformations = 1 credit (calculated on a rolling 30-day basis).
+
+### Overview
+
+Two complementary strategies prevent accumulation and manage costs:
+
+1. **Automated Multi-Batch Purge** - Efficiently clear large backlogs (900,000+ images)
+2. **Automatic Purge on Upload** - Prevent future accumulation by auto-deleting old images
+
+### Automated Multi-Batch Purge System
+
+**Purpose**: Efficiently delete large volumes of old images with continuous automatic retry.
+
+**How it works**:
+- Runs multiple purge cycles automatically in a continuous loop
+- Each cycle runs for 4 minutes (240 seconds) to stay within Vercel's 5-minute timeout
+- Pauses for 1 minute between cycles to avoid rate limiting
+- Processes ~200 images per batch (2 batches of 100)
+- Shows real-time progress updates via Server-Sent Events (SSE)
+- **Automatically continues** until all old images are deleted (no manual intervention needed!)
+- User can stop at any time with "Stop Auto-Purge" button
+
+**Performance**:
+- ~8-9 seconds per batch
+- ~40-50 batches per 4-minute cycle
+- **~8,000-10,000 images per cycle**
+- Example: 900,000 images = ~90-112 cycles (runs automatically with 1-minute pauses)
+- Estimated total time: ~12-15 hours for 900,000 images (can run in background)
+
+**Usage**:
+1. Access Debug Dashboard: `https://elidemo.visiumtechnologies.com/debug?token=YOUR_TOKEN`
+2. Go to **Settings** tab
+3. Click **"Auto-Purge (Multi-Batch)"** button (orange)
+4. Confirm the action (WARNING: cannot be undone)
+5. System automatically runs continuous cycles:
+   - 4 minutes: purge cycle
+   - 1 minute: pause (countdown displayed)
+   - Repeat until all old images deleted
+6. Watch real-time progress showing cycle number, batch progress, and cumulative totals
+7. Click **"Stop Auto-Purge"** button at any time to cancel
+
+**Real-time Progress Display**:
+```
+Cycle 1, Batch 1: Deleted 200 images
+Cycle total: 200 | Global total: 200
+Time elapsed: 9s (cycle) / 9s (total) | More images: Yes
+
+Cycle 1, Batch 2: Deleted 200 images
+Cycle total: 400 | Global total: 400
+Time elapsed: 18s (cycle) / 18s (total) | More images: Yes
+
+...
+
+Cycle 1 complete. Resuming in 60 seconds...
+Global total deleted: 10000
+Total time elapsed: 240s
+
+Cycle 2, Batch 1: Deleted 200 images
+Cycle total: 200 | Global total: 10200
+Time elapsed: 9s (cycle) / 249s (total) | More images: Yes
+```
+
+**Key Features**:
+- ✅ **Fully Automatic**: No manual intervention needed - runs continuously until complete
+- ✅ **Pause Between Cycles**: 1-minute pause prevents rate limiting and allows Vercel to reset
+- ✅ **Real-time Monitoring**: See progress across all cycles with cumulative totals
+- ✅ **Cancellable**: Stop button allows user to cancel at any time
+- ✅ **Safe**: Respects Vercel's 5-minute timeout with 4-minute cycles + 1-minute pauses
+- ✅ **Efficient**: Processes 8,000-10,000 images per cycle
+
+### Automatic Purge on Upload
+
+**Purpose**: Prevent images from accumulating beyond the configured retention period.
+
+**How it works**:
+- Automatically triggered when new images are uploaded
+- Runs asynchronously in the background (non-blocking)
+- Deletes up to 100 old images per upload
+- Uses configured retention period (default: 7 days)
+- Logged as: `[Auto-Purge] Deleted X old images (>Y days)`
+
+**Benefits**:
+- Zero manual intervention required
+- Images never exceed retention period
+- Gradual, continuous cleanup
+- No performance impact on uploads
+- Prevents backlog from accumulating again
+
+**Configuration**:
+```bash
+# Set in Vercel → Settings → Environment Variables
+CLOUDINARY_RETENTION_DAYS=7  # Default: 7 days
+```
+
+Set to `0` to disable automatic purging.
+
+### Configuration
+
+**CLOUDINARY_RETENTION_DAYS** (default: 7)
+- Number of days to retain images
+- Images older than this are automatically purged when new images are uploaded
+- Also used by manual purge operations
+- Set to 0 to disable automatic purging
+- Configurable per environment (dev, staging, production)
+
+**CLOUDINARY_ENABLED** (default: true)
+- Enable/disable all Cloudinary uploads
+- Set to `false` to prevent credit usage during maintenance or when approaching limits
+- When disabled, uploads return null instead of uploading
+
+**CLOUDINARY_FOLDER** (default: irex-events)
+- Root folder for organizing uploads in Cloudinary
+
+### Monitoring
+
+**Debug Dashboard Settings Tab**:
+- Shows current auto-purge status (Enabled/Disabled)
+- Displays retention period (X days)
+- Shows account info: Cloud Name, Folder, Credit Limit
+- Displays usage: Calculated on rolling 30-day basis
+
+**Logs**:
+- Automatic purge: `[Auto-Purge] Deleted X old images (>Y days)`
+- Automatic purge errors: `[Auto-Purge] Background purge failed: ...`
+- Manual purge: Check Vercel logs for purge operations
+
+### Best Practices
+
+1. **Initial cleanup**: Use Auto-Purge button to clear backlog (runs automatically until complete)
+2. **Keep browser tab open**: The continuous purge runs in the browser. Keep the Debug Dashboard tab open during purge.
+3. **Keep automatic purge enabled**: Set `CLOUDINARY_RETENTION_DAYS=7` (or desired retention)
+4. **Monitor progress**: Watch the real-time progress display showing cycle number and cumulative totals
+5. **Stop if needed**: Click "Stop Auto-Purge" button to cancel at any time
+6. **Adjust retention as needed**: Balance between storage costs and data retention requirements
+7. **Disable uploads if needed**: Set `CLOUDINARY_ENABLED=false` to prevent credit usage during maintenance
+8. **Schedule large purges**: For 900,000+ image backlogs, run during off-peak hours (takes 12-15 hours)
+
+### Troubleshooting
+
+- **Auto-Purge times out**: Expected for large backlogs. Click "Auto-Purge" again to continue.
+- **Auto-Purge not responding**: Check browser console. Verify `DEBUG_DASHBOARD_ENABLED=true` and token is correct.
+- **Automatic purge not working**: Verify `CLOUDINARY_RETENTION_DAYS > 0`. Check logs for `[Auto-Purge]` messages.
+- **Images still accumulating**: Verify automatic purge enabled. Check if upload rate exceeds purge rate (100 images/upload).
+- **Purge deletes wrong images**: Verify `CLOUDINARY_RETENTION_DAYS` is set correctly.
 
 ---
 

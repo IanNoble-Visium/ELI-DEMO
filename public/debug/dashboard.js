@@ -880,24 +880,24 @@
     }
   }
 
-  // Auto-purge function with streaming progress
-  async function startAutoPurge() {
-    const days = document.getElementById('purge-days')?.value || '7';
+  // Global state for continuous auto-purge
+  let autoPurgeState = {
+    running: false,
+    cancelled: false,
+    totalDeletedGlobal: 0,
+    cyclesRun: 0,
+    startTime: null
+  };
+
+  // Helper function to sleep
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // Run a single auto-purge cycle (4 minutes)
+  async function runAutoPurgeCycle(days, cycleNumber) {
     const progressEl = document.getElementById('auto-purge-progress');
-    const resultEl = document.getElementById('purge-result');
-
-    if (!progressEl) return;
-
-    // Confirm action
-    if (!confirm(`WARNING: This will automatically purge ALL images older than ${days} days.\n\nThis will run for up to 4 minutes and delete as many old images as possible.\n\nThis action cannot be undone!\n\nContinue?`)) {
-      return;
-    }
-
-    resultEl.innerHTML = '';
-    progressEl.innerHTML = '<div style="color:#ffd24d;padding:12px;background:#0b0f1e;border:1px solid #1d2744;border-radius:6px">' +
-      '<strong>Auto-Purge Running...</strong><br/>' +
-      '<div id="auto-purge-status">Starting...</div>' +
-      '</div>';
+    if (!progressEl || autoPurgeState.cancelled) return { completed: true, deleted: 0 };
 
     try {
       const response = await fetch('/api/debug/cloudinary/auto-purge', {
@@ -909,8 +909,16 @@
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let cycleDeleted = 0;
+      let cycleCompleted = false;
+      let hasMore = true;
 
       while (true) {
+        if (autoPurgeState.cancelled) {
+          reader.cancel();
+          break;
+        }
+
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -924,30 +932,139 @@
             const statusEl = document.getElementById('auto-purge-status');
 
             if (data.type === 'start') {
-              statusEl.innerHTML = `Starting auto-purge for images older than ${data.days} days...<br/>Max runtime: ${data.maxTimeSeconds} seconds`;
+              statusEl.innerHTML = `<strong>Cycle ${cycleNumber}:</strong> Starting auto-purge for images older than ${data.days} days...<br/>` +
+                `Max runtime: ${data.maxTimeSeconds} seconds`;
             } else if (data.type === 'progress') {
-              statusEl.innerHTML = `<strong>Batch ${data.batch}:</strong> Deleted ${data.deleted} images (Total: ${data.totalDeleted})<br/>` +
-                `Time elapsed: ${data.timeElapsed}s | More images: ${data.hasMore ? 'Yes' : 'No'}`;
+              cycleDeleted = data.totalDeleted;
+              hasMore = data.hasMore;
+              const totalElapsed = Math.round((Date.now() - autoPurgeState.startTime) / 1000);
+              statusEl.innerHTML = `<strong>Cycle ${cycleNumber}, Batch ${data.batch}:</strong> Deleted ${data.deleted} images<br/>` +
+                `Cycle total: ${cycleDeleted} | Global total: ${autoPurgeState.totalDeletedGlobal + cycleDeleted}<br/>` +
+                `Time elapsed: ${data.timeElapsed}s (cycle) / ${totalElapsed}s (total) | More images: ${data.hasMore ? 'Yes' : 'No'}`;
             } else if (data.type === 'complete') {
-              progressEl.innerHTML = '<div style="color:#4ade80;padding:12px;background:#0b0f1e;border:1px solid #1d2744;border-radius:6px">' +
-                '<strong>Auto-Purge Complete!</strong><br/>' +
-                `Total deleted: ${data.totalDeleted} images<br/>` +
-                `Batches run: ${data.batchesRun}<br/>` +
-                `Time elapsed: ${data.timeElapsed} seconds<br/>` +
-                `Status: ${data.completed ? 'All old images deleted' : 'Time limit reached - more images may exist'}` +
-                (data.completed ? '' : '<br/><br/><em>Click "Auto-Purge" again to continue deleting remaining images.</em>') +
-                '</div>';
-              loadCloudinary();
+              cycleDeleted = data.totalDeleted;
+              cycleCompleted = data.completed;
+              hasMore = !data.completed;
             } else if (data.type === 'error') {
               progressEl.innerHTML = '<div style="color:#ff8080;padding:12px;background:#0b0f1e;border:1px solid #1d2744;border-radius:6px">' +
-                '<strong>Error:</strong> ' + escapeHtml(data.error) +
+                `<strong>Error in Cycle ${cycleNumber}:</strong> ` + escapeHtml(data.error) +
                 '</div>';
+              return { completed: true, deleted: cycleDeleted };
             }
           }
         }
       }
+
+      return { completed: cycleCompleted, deleted: cycleDeleted, hasMore };
     } catch (err) {
-      progressEl.innerHTML = '<div style="color:#ff8080">Error: ' + escapeHtml(String(err.message || err)) + '</div>';
+      const progressEl = document.getElementById('auto-purge-progress');
+      if (progressEl) {
+        progressEl.innerHTML = '<div style="color:#ff8080;padding:12px;background:#0b0f1e;border:1px solid #1d2744;border-radius:6px">' +
+          `<strong>Error in Cycle ${cycleNumber}:</strong> ` + escapeHtml(String(err.message || err)) +
+          '</div>';
+      }
+      return { completed: true, deleted: 0 };
+    }
+  }
+
+  // Auto-purge function with continuous retry mechanism
+  async function startAutoPurge() {
+    const days = document.getElementById('purge-days')?.value || '7';
+    const progressEl = document.getElementById('auto-purge-progress');
+    const resultEl = document.getElementById('purge-result');
+
+    if (!progressEl) return;
+
+    // Prevent multiple simultaneous runs
+    if (autoPurgeState.running) {
+      alert('Auto-purge is already running. Please wait for it to complete or click "Stop Auto-Purge".');
+      return;
+    }
+
+    // Confirm action
+    if (!confirm(`WARNING: This will automatically purge ALL images older than ${days} days.\n\nThe system will run continuously in 4-minute cycles with 1-minute pauses between cycles.\n\nIt will stop automatically when all old images are deleted.\n\nYou can click "Stop Auto-Purge" at any time to cancel.\n\nThis action cannot be undone!\n\nContinue?`)) {
+      return;
+    }
+
+    // Initialize state
+    autoPurgeState.running = true;
+    autoPurgeState.cancelled = false;
+    autoPurgeState.totalDeletedGlobal = 0;
+    autoPurgeState.cyclesRun = 0;
+    autoPurgeState.startTime = Date.now();
+
+    resultEl.innerHTML = '';
+    progressEl.innerHTML = '<div style="color:#ffd24d;padding:12px;background:#0b0f1e;border:1px solid #1d2744;border-radius:6px">' +
+      '<strong>Auto-Purge Running (Continuous Mode)...</strong><br/>' +
+      '<div id="auto-purge-status">Starting...</div>' +
+      '<button id="stop-auto-purge-btn" style="margin-top:12px;padding:8px 16px;background:#ff6b35;color:white;border:none;border-radius:4px;cursor:pointer">Stop Auto-Purge</button>' +
+      '</div>';
+
+    // Setup stop button
+    const stopBtn = document.getElementById('stop-auto-purge-btn');
+    if (stopBtn) {
+      stopBtn.addEventListener('click', () => {
+        autoPurgeState.cancelled = true;
+      });
+    }
+
+    try {
+      let cycleNumber = 1;
+      let allCompleted = false;
+
+      while (!allCompleted && !autoPurgeState.cancelled) {
+        autoPurgeState.cyclesRun = cycleNumber;
+
+        // Run one cycle
+        const cycleResult = await runAutoPurgeCycle(days, cycleNumber);
+        autoPurgeState.totalDeletedGlobal += cycleResult.deleted;
+
+        if (autoPurgeState.cancelled) {
+          break;
+        }
+
+        // Check if we're done
+        if (cycleResult.completed || !cycleResult.hasMore) {
+          allCompleted = true;
+          break;
+        }
+
+        // Pause between cycles (1 minute)
+        const statusEl = document.getElementById('auto-purge-status');
+        if (statusEl) {
+          for (let i = 60; i > 0 && !autoPurgeState.cancelled; i--) {
+            const totalElapsed = Math.round((Date.now() - autoPurgeState.startTime) / 1000);
+            statusEl.innerHTML = `<strong>Pausing between cycles...</strong><br/>` +
+              `Cycle ${cycleNumber} complete. Resuming in ${i} seconds...<br/>` +
+              `Global total deleted: ${autoPurgeState.totalDeletedGlobal}<br/>` +
+              `Total time elapsed: ${totalElapsed}s`;
+            await sleep(1000);
+          }
+        }
+
+        cycleNumber++;
+      }
+
+      // Final status
+      const totalElapsed = Math.round((Date.now() - autoPurgeState.startTime) / 1000);
+      const finalStatus = autoPurgeState.cancelled ? 'Stopped by user' : 'All old images deleted';
+      const finalColor = autoPurgeState.cancelled ? '#ff8080' : '#4ade80';
+
+      progressEl.innerHTML = `<div style="color:${finalColor};padding:12px;background:#0b0f1e;border:1px solid #1d2744;border-radius:6px">` +
+        '<strong>Auto-Purge Complete!</strong><br/>' +
+        `Total deleted: ${autoPurgeState.totalDeletedGlobal} images<br/>` +
+        `Cycles run: ${autoPurgeState.cyclesRun}<br/>` +
+        `Total time elapsed: ${totalElapsed} seconds<br/>` +
+        `Status: ${finalStatus}` +
+        '</div>';
+
+      loadCloudinary();
+    } catch (err) {
+      progressEl.innerHTML = '<div style="color:#ff8080;padding:12px;background:#0b0f1e;border:1px solid #1d2744;border-radius:6px">' +
+        '<strong>Error:</strong> ' + escapeHtml(String(err.message || err)) +
+        '</div>';
+    } finally {
+      autoPurgeState.running = false;
     }
   }
 
