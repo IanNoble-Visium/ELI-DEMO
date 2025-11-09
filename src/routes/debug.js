@@ -4,7 +4,7 @@ const config = require('../config');
 const logger = require('../logger');
 const { query } = require('../db/postgres');
 const { getSession } = require('../db/neo4j');
-const { cloudinary, purgeOldImages } = require('../lib/cloudinary');
+const { cloudinary, purgeOldImages, autoPurgeOldImages } = require('../lib/cloudinary');
 const https = require('https');
 const http = require('http');
 
@@ -315,6 +315,51 @@ router.post('/api/debug/cloudinary/purge', requireDebugAccess, async (req, res) 
   } catch (err) {
     logger.error({ err }, 'Failed to purge Cloudinary images');
     res.status(500).json({ error: String(err.message || err) });
+  }
+});
+
+// POST /api/debug/cloudinary/auto-purge - Automated multi-batch purge with SSE progress
+router.post('/api/debug/cloudinary/auto-purge', requireDebugAccess, async (req, res) => {
+  const enabled = process.env.DEBUG_DASHBOARD_ENABLED === 'true' || config.env !== 'production';
+  if (!enabled) return res.status(404).end();
+
+  if (config.mockMode) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.write('data: ' + JSON.stringify({ type: 'start', days: 7, maxTimeSeconds: 240 }) + '\n\n');
+    res.write('data: ' + JSON.stringify({ type: 'complete', totalDeleted: 0, batchesRun: 0, timeElapsed: 0, completed: true }) + '\n\n');
+    return res.end();
+  }
+
+  // Set up SSE headers for streaming progress updates
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  const days = parseInt(req.body?.days || '7', 10);
+  const maxTimeSeconds = parseInt(req.body?.maxTimeSeconds || '240', 10);
+
+  if (days < 1 || days > 365) {
+    res.write('data: ' + JSON.stringify({ type: 'error', error: 'Days must be between 1 and 365' }) + '\n\n');
+    return res.end();
+  }
+
+  try {
+    logger.info({ days, maxTimeSeconds }, 'Auto-purge requested');
+    res.write('data: ' + JSON.stringify({ type: 'start', days, maxTimeSeconds }) + '\n\n');
+
+    const result = await autoPurgeOldImages(days, maxTimeSeconds, (progress) => {
+      res.write('data: ' + JSON.stringify({ type: 'progress', ...progress }) + '\n\n');
+    });
+
+    logger.info({ result }, 'Auto-purge completed');
+    res.write('data: ' + JSON.stringify({ type: 'complete', ...result }) + '\n\n');
+    res.end();
+  } catch (err) {
+    logger.error({ err }, 'Failed to auto-purge Cloudinary images');
+    res.write('data: ' + JSON.stringify({ type: 'error', error: String(err.message || err) }) + '\n\n');
+    res.end();
   }
 });
 
