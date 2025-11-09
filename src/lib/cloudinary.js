@@ -7,6 +7,24 @@ cloudinary.config({
   api_secret: config.cloudinary.apiSecret,
 });
 
+/**
+ * Automatic background purge - deletes a small batch of old images
+ * This runs asynchronously and doesn't block the upload
+ * @param {number} retentionDays - Delete images older than this many days
+ */
+async function autoPurgeBackground(retentionDays) {
+  try {
+    // Small batch to avoid slowing down uploads (50 images max)
+    const result = await purgeOldImages(retentionDays, false, 1);
+    if (result.deleted > 0) {
+      console.log(`[Auto-Purge] Deleted ${result.deleted} old images (>${retentionDays} days)`);
+    }
+  } catch (err) {
+    console.error('[Auto-Purge] Background purge failed:', err.message);
+    // Don't throw - this is a background operation
+  }
+}
+
 async function uploadDataUri(dataUri, publicId) {
   // Check if Cloudinary is enabled
   if (!config.cloudinary.enabled) {
@@ -18,6 +36,16 @@ async function uploadDataUri(dataUri, publicId) {
     public_id: publicId,
     overwrite: true,
   });
+
+  // Trigger automatic purge in background (non-blocking)
+  const retentionDays = config.cloudinary.retentionDays;
+  if (retentionDays > 0) {
+    // Fire and forget - don't await
+    autoPurgeBackground(retentionDays).catch(err => {
+      console.error('[Auto-Purge] Error:', err);
+    });
+  }
+
   return res.secure_url;
 }
 
@@ -98,5 +126,64 @@ async function purgeOldImages(days = 7, dryRun = false, maxBatches = 2) {
   return { deleted, sample, total, dryRun: false, hasMore };
 }
 
-module.exports = { cloudinary, uploadDataUri, purgeOldImages };
+/**
+ * Automated multi-batch purge that runs until time limit or all images deleted
+ * @param {number} days - Delete images older than this many days
+ * @param {number} maxTimeSeconds - Maximum time to run (default: 240 seconds = 4 minutes)
+ * @param {function} progressCallback - Optional callback for progress updates
+ * @returns {Promise<{totalDeleted: number, batchesRun: number, timeElapsed: number, completed: boolean}>}
+ */
+async function autoPurgeOldImages(days = 7, maxTimeSeconds = 240, progressCallback = null) {
+  const startTime = Date.now();
+  const maxTimeMs = maxTimeSeconds * 1000;
+  let totalDeleted = 0;
+  let batchesRun = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    // Check if we're approaching time limit (leave 20 second buffer)
+    const elapsed = Date.now() - startTime;
+    if (elapsed > maxTimeMs - 20000) {
+      console.log(`Auto-purge stopping: approaching time limit (${elapsed}ms elapsed)`);
+      break;
+    }
+
+    // Run one batch (2 batches of 100 = 200 images)
+    const result = await purgeOldImages(days, false, 2);
+    totalDeleted += result.deleted;
+    batchesRun++;
+    hasMore = result.hasMore;
+
+    // Send progress update
+    if (progressCallback) {
+      progressCallback({
+        batch: batchesRun,
+        deleted: result.deleted,
+        totalDeleted,
+        hasMore,
+        timeElapsed: Math.round(elapsed / 1000),
+      });
+    }
+
+    console.log(`Auto-purge batch ${batchesRun}: deleted ${result.deleted}, total ${totalDeleted}, hasMore: ${hasMore}`);
+
+    // If no more images, we're done
+    if (!hasMore || result.deleted === 0) {
+      break;
+    }
+
+    // Small delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  const timeElapsed = Math.round((Date.now() - startTime) / 1000);
+  return {
+    totalDeleted,
+    batchesRun,
+    timeElapsed,
+    completed: !hasMore,
+  };
+}
+
+module.exports = { cloudinary, uploadDataUri, purgeOldImages, autoPurgeOldImages };
 

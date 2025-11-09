@@ -33,6 +33,11 @@ Tables expected (simplified):
   - When disabled, image upload functions return null instead of uploading
   - Useful for managing credit limits on Plus plan (225 credits/month)
   - Note: 1,000 transformations = 1 credit; credits calculated on rolling 30-day basis
+- CLOUDINARY_RETENTION_DAYS: automatic image retention period (default: 7)
+  - Images older than this many days are automatically purged when new images are uploaded
+  - Helps prevent accumulation and manage storage/transformation credits
+  - Set to 0 to disable automatic purging
+  - Automatic purge runs in background and deletes up to 100 old images per upload
 
 ## Example .env
 ```

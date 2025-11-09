@@ -19,6 +19,7 @@ const config = {
     apiKey: process.env.CLOUDINARY_API_KEY,
     apiSecret: process.env.CLOUDINARY_API_SECRET,
     folder: process.env.CLOUDINARY_FOLDER || 'irex-events',
+    retentionDays: parseInt(process.env.CLOUDINARY_RETENTION_DAYS || '7', 10),
     get enabled() {
       return process.env.CLOUDINARY_ENABLED !== 'false';
     },

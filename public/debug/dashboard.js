@@ -97,10 +97,12 @@
     // Settings controls
     const refreshSettingsBtn = document.getElementById('refresh-settings-btn');
     const purgeImagesBtn = document.getElementById('purge-images-btn');
+    const autoPurgeBtn = document.getElementById('auto-purge-btn');
     const cloudinaryEnabledToggle = document.getElementById('cloudinary-enabled-toggle');
 
     if (refreshSettingsBtn) refreshSettingsBtn.addEventListener('click', loadSettings);
     if (purgeImagesBtn) purgeImagesBtn.addEventListener('click', openPurgeModal);
+    if (autoPurgeBtn) autoPurgeBtn.addEventListener('click', startAutoPurge);
     if (cloudinaryEnabledToggle) {
       cloudinaryEnabledToggle.addEventListener('change', function() {
         showCloudinaryToggleWarning(this.checked);
@@ -878,9 +880,81 @@
     }
   }
 
+  // Auto-purge function with streaming progress
+  async function startAutoPurge() {
+    const days = document.getElementById('purge-days')?.value || '7';
+    const progressEl = document.getElementById('auto-purge-progress');
+    const resultEl = document.getElementById('purge-result');
+
+    if (!progressEl) return;
+
+    // Confirm action
+    if (!confirm(`WARNING: This will automatically purge ALL images older than ${days} days.\n\nThis will run for up to 4 minutes and delete as many old images as possible.\n\nThis action cannot be undone!\n\nContinue?`)) {
+      return;
+    }
+
+    resultEl.innerHTML = '';
+    progressEl.innerHTML = '<div style="color:#ffd24d;padding:12px;background:#0b0f1e;border:1px solid #1d2744;border-radius:6px">' +
+      '<strong>Auto-Purge Running...</strong><br/>' +
+      '<div id="auto-purge-status">Starting...</div>' +
+      '</div>';
+
+    try {
+      const response = await fetch('/api/debug/cloudinary/auto-purge', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: parseInt(days, 10), maxTimeSeconds: 240 })
+      });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = JSON.parse(line.slice(6));
+            const statusEl = document.getElementById('auto-purge-status');
+
+            if (data.type === 'start') {
+              statusEl.innerHTML = `Starting auto-purge for images older than ${data.days} days...<br/>Max runtime: ${data.maxTimeSeconds} seconds`;
+            } else if (data.type === 'progress') {
+              statusEl.innerHTML = `<strong>Batch ${data.batch}:</strong> Deleted ${data.deleted} images (Total: ${data.totalDeleted})<br/>` +
+                `Time elapsed: ${data.timeElapsed}s | More images: ${data.hasMore ? 'Yes' : 'No'}`;
+            } else if (data.type === 'complete') {
+              progressEl.innerHTML = '<div style="color:#4ade80;padding:12px;background:#0b0f1e;border:1px solid #1d2744;border-radius:6px">' +
+                '<strong>Auto-Purge Complete!</strong><br/>' +
+                `Total deleted: ${data.totalDeleted} images<br/>` +
+                `Batches run: ${data.batchesRun}<br/>` +
+                `Time elapsed: ${data.timeElapsed} seconds<br/>` +
+                `Status: ${data.completed ? 'All old images deleted' : 'Time limit reached - more images may exist'}` +
+                (data.completed ? '' : '<br/><br/><em>Click "Auto-Purge" again to continue deleting remaining images.</em>') +
+                '</div>';
+              loadCloudinary();
+            } else if (data.type === 'error') {
+              progressEl.innerHTML = '<div style="color:#ff8080;padding:12px;background:#0b0f1e;border:1px solid #1d2744;border-radius:6px">' +
+                '<strong>Error:</strong> ' + escapeHtml(data.error) +
+                '</div>';
+            }
+          }
+        }
+      }
+    } catch (err) {
+      progressEl.innerHTML = '<div style="color:#ff8080">Error: ' + escapeHtml(String(err.message || err)) + '</div>';
+    }
+  }
+
   // Expose functions to window for modal callbacks
   window.closePurgeModal = closePurgeModal;
   window.confirmPurge = confirmPurge;
+  window.startAutoPurge = startAutoPurge;
 
   // Initialize when DOM is ready
   if (document.readyState === 'loading') {

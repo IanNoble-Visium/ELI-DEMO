@@ -189,17 +189,20 @@ function renderDebugTemplate({ mockBanner, debugToken, clearEnabled, cloudinaryF
           </label>
         </div>
 
-        <div style="display:flex;gap:8px">
-          <button class="danger" id="purge-images-btn">Purge Old Images</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="danger" id="purge-images-btn">Purge Old Images (1 batch)</button>
+          <button class="danger" id="auto-purge-btn" style="background:#ff6b35">Auto-Purge (Multi-Batch)</button>
           <button class="primary" id="refresh-settings-btn">Refresh Status</button>
         </div>
 
         <div id="purge-result" style="margin-top:12px"></div>
+        <div id="auto-purge-progress" style="margin-top:12px"></div>
       </div>
 
       <div style="margin-top:16px;padding:12px;background:#2b364f;border:1px solid #1d2744;border-radius:8px;color:#ffd24d;font-size:12px">
         <strong>Account Info:</strong> Cloud Name: ${config.cloudinary.cloudName || 'Not configured'} | Folder: ${cloudinaryFolder}
         <br/><strong>Credit Limit:</strong> 225 credits/month (Plus plan) | <strong>Usage:</strong> Calculated on rolling 30-day basis
+        <br/><strong>Auto-Purge:</strong> ${config.cloudinary.retentionDays > 0 ? `Enabled (${config.cloudinary.retentionDays} days retention)` : 'Disabled'} | Runs automatically on each upload
       </div>
     </div>
   </section>
