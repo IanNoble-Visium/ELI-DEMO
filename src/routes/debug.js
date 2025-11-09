@@ -169,6 +169,7 @@ function renderDebugTemplate({ mockBanner, debugToken, clearEnabled, cloudinaryF
         <div style="color:#a8b3cf;font-size:12px;margin-bottom:12px">
           Delete images older than the selected time period to manage your rolling 30-day transformation credits.
           <br/><strong>Note:</strong> 1,000 transformations = 1 credit. Your Plus plan includes 225 credits/month.
+          <br/><strong>Batch Processing:</strong> Processes up to 200 images per request to avoid timeouts. Run multiple times if needed.
         </div>
 
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
@@ -287,19 +288,24 @@ router.post('/api/debug/cloudinary/purge', requireDebugAccess, async (req, res) 
   if (!enabled) return res.status(404).end();
 
   if (config.mockMode) {
-    return res.json({ mock: true, deleted: 0, total: 0, sample: [] });
+    return res.json({ mock: true, deleted: 0, total: 0, sample: [], hasMore: false });
   }
 
   try {
     const days = parseInt(req.body.days || '7', 10);
     const dryRun = req.body.dry_run === true || req.body.dry_run === 'true';
+    const maxBatches = parseInt(req.body.max_batches || '2', 10);
 
     if (days < 1 || days > 365) {
       return res.status(400).json({ error: 'Days must be between 1 and 365' });
     }
 
-    logger.info({ days, dryRun }, 'Cloudinary purge requested');
-    const result = await purgeOldImages(days, dryRun);
+    // Limit max_batches to prevent timeout (default: 2, max: 5)
+    // Each batch is 100 images, so max 500 images per request
+    const batches = Math.min(maxBatches, 5);
+
+    logger.info({ days, dryRun, batches }, 'Cloudinary purge requested');
+    const result = await purgeOldImages(days, dryRun, batches);
 
     logger.info({ result }, 'Cloudinary purge completed');
     res.json(result);

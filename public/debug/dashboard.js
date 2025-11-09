@@ -815,13 +815,13 @@
 
     if (!resultEl) return;
 
-    resultEl.innerHTML = '<div style="color:#ffd24d">Processing... please wait</div>';
+    resultEl.innerHTML = '<div style="color:#ffd24d">Processing... please wait (limited to 200 images per request to avoid timeout)</div>';
 
     try {
       const response = await fetch('/api/debug/cloudinary/purge', {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ days: parseInt(days, 10), dry_run: dryRun })
+        body: JSON.stringify({ days: parseInt(days, 10), dry_run: dryRun, max_batches: 2 })
       });
 
       const result = await response.json();
@@ -841,7 +841,7 @@
 
       if (dryRun) {
         html += '<strong>Preview Results:</strong><br/>';
-        html += 'Found ' + result.total + ' images older than ' + days + ' days<br/>';
+        html += 'Found ' + result.total + ' images older than ' + days + ' days in this batch<br/>';
         if (result.sample && result.sample.length > 0) {
           html += '<br/><strong>Sample (first 10):</strong><br/>';
           html += '<ul style="margin:4px 0;padding-left:20px">';
@@ -850,10 +850,22 @@
           });
           html += '</ul>';
         }
+        if (result.hasMore) {
+          html += '<br/><div style="color:#ffd24d;background:#2b364f;padding:8px;border-radius:4px">';
+          html += '<strong>Note:</strong> More images may exist beyond this batch. ';
+          html += 'To process all images, you may need to run the purge multiple times.';
+          html += '</div>';
+        }
         html += '<br/><em>Uncheck "Dry run" and click "Purge Old Images" again to actually delete these images.</em>';
       } else {
         html += '<strong>Purge Complete!</strong><br/>';
         html += 'Deleted ' + result.deleted + ' of ' + result.total + ' images older than ' + days + ' days';
+        if (result.hasMore) {
+          html += '<br/><br/><div style="color:#ffd24d;background:#2b364f;padding:8px;border-radius:4px">';
+          html += '<strong>Note:</strong> More old images may still exist. ';
+          html += 'Click "Purge Old Images" again to process the next batch.';
+          html += '</div>';
+        }
       }
 
       html += '</div>';
